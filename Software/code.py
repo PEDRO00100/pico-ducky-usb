@@ -7,7 +7,6 @@ import supervisor
 import os
 import pwmio
 import time
-import digitalio
 import board
 import busio
 import storage
@@ -47,13 +46,6 @@ except Exception as e:
 
 led = pwmio.PWMOut(board.LED, frequency=5000, duty_cycle=0)
 
-def file_exists_fast(path: str) -> bool:
-    """Zero-RAM allocation filesystem check using FAT32 metadata."""
-    try:
-        os.stat(path)
-        return True
-    except OSError:
-        return False
 
 async def wait_for_sd_ready_async(timeout_sec=2.0, interval=0.1):
     if not sd_mounted:
@@ -63,7 +55,7 @@ async def wait_for_sd_ready_async(timeout_sec=2.0, interval=0.1):
     start_time = time.monotonic()
 
     while (time.monotonic() - start_time) < timeout_sec:
-        if file_exists_fast("/sd"):
+        if file_exists("/sd"):
             log("SUCCESS", "SD Card filesystem ready.")
             return True
         await asyncio.sleep(interval)
@@ -76,7 +68,7 @@ async def run_payload_on_startup():
         log("INFO", "Dev Mode active (GP0 grounded). Halting automated execution.")
         return
 
-    if file_exists_fast("/loot.bin") or file_exists_fast("/sd/loot.bin"):
+    if file_exists("/loot.bin") or file_exists("/sd/loot.bin"):
         log("WARN", "Kill-switch 'loot.bin' detected. Aborting pipeline.")
         return
 
@@ -86,7 +78,7 @@ async def run_payload_on_startup():
     log("INFO", "Resolving target payload via binary DIP switch...")
     payload_path = selectPayload()
 
-    if payload_path and file_exists_fast(payload_path):
+    if payload_path and file_exists(payload_path):
         log("SUCCESS", f"Executing payload: {payload_path}")
         await runScript(payload_path)
     else:
@@ -96,7 +88,6 @@ async def main_loop():
     log("INFO", "Starting asynchronous kernel loop")
     tasks = [
         asyncio.create_task(blink_pico_led(led)),
-        asyncio.create_task(monitor_buttons(button1)),
         asyncio.create_task(monitor_led_changes()),
         asyncio.create_task(run_payload_on_startup())
     ]

@@ -31,7 +31,7 @@ The PCB layout is engineered for signal integrity, prioritizing short trace leng
 | **MicroSD SPI (SCK)** | `GP18` | Bus clock synchronization | SPI0 Bus |
 | **MicroSD SPI (MOSI)** | `GP19` | Data transmit to external storage | SPI0 Bus |
 
-*(Note: Additional GPIO pins such as `GP22` are routed on the PCB layout for secondary applications or future expansion, but are omitted from active execution loops to streamline automated payload delivery).*
+
 
 #### 🔘 Onboard Physical Control Buttons
 The device incorporates three dedicated tactile buttons for system management and firmware operations:

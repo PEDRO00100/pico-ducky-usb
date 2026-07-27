@@ -14,11 +14,7 @@ import os
 import re
 import time
 import random
-import digitalio
-from digitalio import DigitalInOut, Pull
-from adafruit_debouncer import Debouncer
 import board
-from board import *
 import asyncio
 import usb_hid
 from adafruit_hid.keyboard import Keyboard
@@ -51,7 +47,7 @@ def pressLock(key):
 def SaveKeyboardLedState():
     variables["$_INITIAL_SCROLLLOCK"] = _scrollOn()
     variables["$_INITIAL_NUMLOCK"] = _numOn()
-    variables   ["$_INITIAL_CAPSLOCK"] = _capsOn()
+    variables["$_INITIAL_CAPSLOCK"] = _capsOn()
 
 
 def RestoreKeyboardLedState():
@@ -99,9 +95,28 @@ internalVariables = {"$_CAPSLOCK_ON": _capsOn, "$_NUMLOCK_ON": _numOn, "$_SCROLL
 defines = {}
 functions = {}
 
-letters = "abcdefghijklmnopqrstuvwxyz"
-numbers = "0123456789"
-specialChars = "!@#$%^&*()"
+LETTERS = "abcdefghijklmnopqrstuvwxyz"
+NUMBERS = "0123456789"
+SPECIAL_CHARS = "!@#$%^&*()"
+
+# Safety limits
+_WHILE_MAX_ITERATIONS = 100_000
+_SCROLL_WAIT_TIMEOUT_SEC = 120
+
+# Pre-computed numpad keycode map (avoids re-allocation per ALTSTRING call)
+NUMPAD_MAP = None  # Initialized after Keycode import, see _init_numpad_map()
+
+def _init_numpad_map():
+    global NUMPAD_MAP
+    NUMPAD_MAP = {
+        '0': Keycode.KEYPAD_ZERO, '1': Keycode.KEYPAD_ONE,
+        '2': Keycode.KEYPAD_TWO, '3': Keycode.KEYPAD_THREE,
+        '4': Keycode.KEYPAD_FOUR, '5': Keycode.KEYPAD_FIVE,
+        '6': Keycode.KEYPAD_SIX, '7': Keycode.KEYPAD_SEVEN,
+        '8': Keycode.KEYPAD_EIGHT, '9': Keycode.KEYPAD_NINE
+    }
+
+_init_numpad_map()
 
 class IF:
     def __init__(self, condition, codeIter):
@@ -111,19 +126,17 @@ class IF:
     
     def _exitIf(self):
         _depth = 0
-        for line in self.codeIter:
-            line = self.codeIter.pop(0)
-            line = line.strip()
+        while self.codeIter:
+            line = self.codeIter.pop(0).strip()
             if line.upper().startswith("END_IF"):
                 _depth -= 1
             elif line.upper().startswith("IF"):
                 _depth += 1
             if _depth < 0:
-                print("No else, exiting" + str(list(self.codeIter)))
                 break
-        return(self.codeIter)
+        return self.codeIter
 
-    def runIf(self):
+    async def runIf(self):
         if isinstance(self.condition, str):
             self.lastIfResult = evaluateExpression(self.condition)
         elif isinstance(self.condition, bool):
@@ -131,45 +144,37 @@ class IF:
         else:
             raise ValueError("Invalid condition type")
 
-        # print(f"condition {self.condition} result is {self.lastIfResult} since \"$VAR\" is {variables["$VAR"]}, code is {self.codeIter}")
         depth = 0
-        for line in self.codeIter:
-            line = self.codeIter.pop(0)
-            line = line.strip()
-            if line == "":
+        while self.codeIter:
+            line = self.codeIter.pop(0).strip()
+            if not line:
                 continue
-            # print(line)
 
             if line.startswith("IF"):
                 depth += 1
             elif line.startswith("END_IF"):
                 if depth == 0:
-                    return(self.codeIter, -1)
-                depth -=1
+                    return (self.codeIter, -1)
+                depth -= 1
 
             elif line.startswith("ELSE") and depth == 0:
-                # print(f"ELSE LINE {line}, lastIfResult: {self.lastIfResult}")
                 if self.lastIfResult is False:
-                    line = line[4:].strip()  # Remove 'ELSE' and strip whitespace
+                    line = line[4:].strip()
                     if line.startswith("IF"):
                         nestedCondition = _getIfCondition(line)
-                        # print(f"nested IF {nestedCondition}")
-                        self.codeIter, self.lastIfResult = IF(nestedCondition, self.codeIter).runIf()
-                        if self.lastIfResult == -1 or self.lastIfResult == True:
-                            # print(f"self.lastIfResult {self.lastIfResult}")
-                            return(self.codeIter, True)
+                        self.codeIter, self.lastIfResult = await IF(nestedCondition, self.codeIter).runIf()
+                        if self.lastIfResult == -1 or self.lastIfResult is True:
+                            return (self.codeIter, True)
                     else:
-                        return IF(True, self.codeIter).runIf()                        #< Regular ELSE block
+                        return await IF(True, self.codeIter).runIf()
                 else:
                     self._exitIf()
                     break
 
             # Process regular lines
             elif self.lastIfResult:
-                # print(f"running line {line}")
-                self.codeIter = list(parseLine(line, self.codeIter))
-        # print("end of if")
-        return(self.codeIter, self.lastIfResult)
+                self.codeIter = list(await parseLine(line, iter(self.codeIter)))
+        return (self.codeIter, self.lastIfResult)
 
 def _getIfCondition(line):
     return str(line)[2:-4].strip()
@@ -195,26 +200,19 @@ def _getCodeBlock(linesIter):
         code.append(line)
     return code
 
-def replaceBooleans(text):                             #< fix capitalization mistakes in true and false (for evaluating with booleans)
-    # Replace any letter-by-letter match for "true" with the proper "True"
+def replaceBooleans(text):
+    """Normalizes boolean literals to Python-compatible casing."""
     text = re.sub(r'[Tt][Rr][Uu][Ee]', 'True', text)
-    # Replace any letter-by-letter match for "false" with the proper "False"
     text = re.sub(r'[Ff][Aa][Ll][Ss][Ee]', 'False', text)
     return text
 
 def evaluateExpression(expression):
     """Evaluates an expression with variables and returns the result."""
     expression = replaceVariables(expression)
-    expression = replaceBooleans(expression)       #< Cant use re due its limitation in circutpython
-    print(expression)
-
-    expression = expression.replace("^", "**")     #< Replace ^ with ** for exponentiation
+    expression = replaceBooleans(expression)
+    expression = expression.replace("^", "**")
     expression = expression.replace("&&", "and")
     expression = expression.replace("||", "or")
-
-    expression = expression.replace("TRUE", "True")
-    expression = expression.replace("FALSE", "False")
-
     return eval(expression, {}, variables)
 
 def deepcopy(List):
@@ -222,7 +220,6 @@ def deepcopy(List):
 
 def convertLine(line):
     commands = []
-    # print(line)
     # loop on each key - the filter removes empty values
     for key in filter(None, line.split(" ")):
         key = key.upper()
@@ -241,7 +238,7 @@ def convertLine(line):
         else:
             # if it's not a known key name, show the error for diagnosis
             print(f"Unknown key: <{key}>")
-    # print(commands)
+
     return commands
 
 def runScriptLine(line):
@@ -272,18 +269,27 @@ def replaceDefines(line):
         line = line.replace(define, value)
     return line
 
+def _safe_next(iterator):
+    try:
+        return next(iterator)
+    except StopIteration:
+        return None
+
 async def parseLine(line, script_lines):
     global defaultDelay, variables, functions, defines
     line = line.strip()
     line = line.replace("$_RANDOM_INT", str(random.randint(int(variables.get("$_RANDOM_MIN", 0)), int(variables.get("$_RANDOM_MAX", 65535)))))
     line = replaceDefines(line)
-    if line[:10] == "INJECT_MOD":
+    if line.startswith("INJECT_MOD"):
         line = line[11:]
     elif line.startswith("REM_BLOCK"):
-        while line.startswith("END_REM") == False:
-            line = next(script_lines).strip()
-            # print(line)
-    elif(line[0:3] == "REM"):
+        while not line.startswith("END_REM"):
+            line = _safe_next(script_lines)
+            if line is None:
+                print("[WARN] REM_BLOCK missing END_REM, reached end of script.")
+                break
+            line = line.strip()
+    elif line.startswith("REM"):
         pass
     elif line.startswith("HOLD"):
         # HOLD command to press and hold a key
@@ -302,94 +308,89 @@ async def parseLine(line, script_lines):
             kbd.release(commandKeycode)
         else:
             print(f"Unknown key to RELEASE: <{key}>")
-    elif(line[0:5] == "DELAY"):
+    elif line.startswith("DELAY"):
         line = replaceVariables(line)
         await asyncio.sleep(float(line[6:])/1000)
     elif line == "STRINGLN":               #< stringLN block
-        line = next(script_lines).strip()
-        line = replaceVariables(line)
-        while line.startswith("END_STRINGLN") == False:
-            sendString(line)
-            kbd.press(Keycode.ENTER)
-            kbd.release(Keycode.ENTER)
-            line = next(script_lines).strip()
+        line = _safe_next(script_lines)
+        if line is None:
+            print("[WARN] STRINGLN block missing content.")
+        else:
+            line = line.strip()
             line = replaceVariables(line)
-            line = replaceDefines(line)
-    elif(line[0:8] == "STRINGLN"):
+            while not line.startswith("END_STRINGLN"):
+                sendString(line)
+                kbd.press(Keycode.ENTER)
+                kbd.release(Keycode.ENTER)
+                line = _safe_next(script_lines)
+                if line is None:
+                    print("[WARN] STRINGLN block missing END_STRINGLN.")
+                    break
+                line = line.strip()
+                line = replaceVariables(line)
+                line = replaceDefines(line)
+    elif line.startswith("STRINGLN"):
         sendString(replaceVariables(line[9:]))
         kbd.press(Keycode.ENTER)
         kbd.release(Keycode.ENTER)
     elif line == "STRING":                 #< string block
-        line = next(script_lines).strip()
-        line = replaceVariables(line)
-        while line.startswith("END_STRING") == False:
-            sendString(line)
-            line = next(script_lines).strip()
+        line = _safe_next(script_lines)
+        if line is None:
+            print("[WARN] STRING block missing content.")
+        else:
+            line = line.strip()
             line = replaceVariables(line)
-            line = replaceDefines(line)
-    elif(line[0:6] == "STRING"):
+            while not line.startswith("END_STRING"):
+                sendString(line)
+                line = _safe_next(script_lines)
+                if line is None:
+                    print("[WARN] STRING block missing END_STRING.")
+                    break
+                line = line.strip()
+                line = replaceVariables(line)
+                line = replaceDefines(line)
+    elif line.startswith("STRING"):
         sendString(replaceVariables(line[7:]))
-    elif(line[0:9] == "ALTSTRING"):
+    elif line.startswith("ALTSTRING"):
         keys = replaceVariables(line[10:])
-        numpad_map = {'0': Keycode.KEYPAD_ZERO, '1': Keycode.KEYPAD_ONE, '2': Keycode.KEYPAD_TWO, '3': Keycode.KEYPAD_THREE, '4': Keycode.KEYPAD_FOUR, '5': Keycode.KEYPAD_FIVE, '6': Keycode.KEYPAD_SIX, '7': Keycode.KEYPAD_SEVEN, '8': Keycode.KEYPAD_EIGHT, '9': Keycode.KEYPAD_NINE}
         
         for char in keys:
             # Fast path: Inject alphanumeric characters and spaces directly
             if (char >= 'a' and char <= 'z') or (char >= 'A' and char <= 'Z') or (char >= '0' and char <= '9') or char == ' ':
                 layout.write(char)
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.005)
             
             # Slow path: Inject symbols via Numpad ALT codes for layout evasion
             else:
                 kbd.press(Keycode.ALT)
-                await asyncio.sleep(0.02)
+                await asyncio.sleep(0.005)
                 
                 for digit in f"{ord(char):04d}":
-                    kbd.press(numpad_map[digit])
-                    await asyncio.sleep(0.02)
-                    kbd.release(numpad_map[digit])
-                    await asyncio.sleep(0.02)
+                    kbd.press(NUMPAD_MAP[digit])
+                    await asyncio.sleep(0.005)
+                    kbd.release(NUMPAD_MAP[digit])
+                    await asyncio.sleep(0.005)
                 
                 kbd.release(Keycode.ALT)
-                await asyncio.sleep(0.02)
-    elif(line[0:5] == "PRINT"):
+                await asyncio.sleep(0.005)
+    elif line.startswith("PRINT"):
         line = replaceVariables(line[6:])
         print("[SCRIPT]: " + line)
-    elif(line[0:6] == "IMPORT"):
-        runScript(line[7:])
-    elif(line[0:13] == "DEFAULT_DELAY"):
-        defaultDelay = int(line[14:]) * 10
-    elif(line[0:12] == "DEFAULTDELAY"):
-        defaultDelay = int(line[13:]) * 10
-    elif(line[0:3] == "LED"):
-        if(led.value == True):
-            led.value = False
-        else:
-            led.value = True
-    elif(line[0:3] == "LED"):
-        if(led.value == True):
-            led.value = False
-        else:
-            led.value = True
-    elif(line[:7] == "LED_OFF"):
+    elif line.startswith("IMPORT"):
+        await runScript(line[7:])
+    elif line.startswith("DEFAULT_DELAY"):
+        defaultDelay = int(line[14:])
+    elif line.startswith("DEFAULTDELAY"):
+        defaultDelay = int(line[13:])
+    elif line.startswith("LED_OFF"):
         led.value = False
-    elif(line[:5] == "LED_R"):
+    elif line.startswith("LED_R"):
         led.value = True
-    elif(line[:5] == "LED_G"):
+    elif line.startswith("LED_G"):
         led.value = True
-    elif(line[0:21] == "WAIT_FOR_BUTTON_PRESS"):
-        button_pressed = False
-        # NOTE: we don't use assincio in this case because we want to block code execution
-        while not button_pressed:
-            button1.update()
+    elif line.startswith("LED"):
+        led.value = not led.value
 
-            button1Pushed = button1.fell
-            button1Released = button1.rose
-            button1Held = not button1.value
-
-            if(button1Pushed):
-                print("Button 1 pushed")
-                button_pressed = True
     elif line.startswith("VAR"):
         match = re.match(r"VAR\s+\$(\w+)\s*=\s*(.+)", line)
         if match:
@@ -415,50 +416,53 @@ async def parseLine(line, script_lines):
         defineValue = line[valueLocation+1:]
         defines[defineName] = defineValue
     elif line.startswith("FUNCTION"):
-        # print("ENTER FUNCTION")
         func_name = line.split()[1]
         functions[func_name] = []
-        line = next(script_lines).strip()
-        while line != "END_FUNCTION":
-            functions[func_name].append(line)
-            line = next(script_lines).strip()
+        line = _safe_next(script_lines)
+        while line is not None and line.strip() != "END_FUNCTION":
+            functions[func_name].append(line.strip())
+            line = _safe_next(script_lines)
+        if line is None:
+            print(f"[WARN] FUNCTION '{func_name}' missing END_FUNCTION.")
     elif line.startswith("WHILE"):
-        # print("ENTER WHILE LOOP")
         condition = line[5:].strip()
         loopCode = list(_getCodeBlock(script_lines))
-        while evaluateExpression(condition) == True:
+        _iter_count = 0
+        while evaluateExpression(condition):
+            _iter_count += 1
+            if _iter_count > _WHILE_MAX_ITERATIONS:
+                print(f"[WARN] WHILE loop exceeded {_WHILE_MAX_ITERATIONS} iterations. Breaking to prevent hang.")
+                break
             currentIterCode = deepcopy(loopCode)
-            # print(loopCode)
             while currentIterCode:
                 loopLine = currentIterCode.pop(0)
-                currentIterCode = list(parseLine(loopLine, iter(currentIterCode)))      #< very inefficient, should be replaced later.
+                currentIterCode = list(await parseLine(loopLine, iter(currentIterCode)))
 
     elif line.upper().startswith("IF"):
-        script_lines, ret = IF(_getIfCondition(line), script_lines).runIf()
-        print(f"IF returned {ret} code")
+        script_lines, ret = await IF(_getIfCondition(line), script_lines).runIf()
     elif line.upper().startswith("END_IF"):
         pass
     elif line == "RANDOM_LOWERCASE_LETTER":
-        sendString(random.choice(letters))
+        sendString(random.choice(LETTERS))
     elif line == "RANDOM_UPPERCASE_LETTER":
-        sendString(random.choice(letters.upper()))
+        sendString(random.choice(LETTERS.upper()))
     elif line == "RANDOM_LETTER":
-        sendString(random.choice(letters + letters.upper()))
+        sendString(random.choice(LETTERS + LETTERS.upper()))
     elif line == "RANDOM_NUMBER":
-        sendString(random.choice(numbers))
+        sendString(random.choice(NUMBERS))
     elif line == "RANDOM_SPECIAL":
-        sendString(random.choice(specialChars))
+        sendString(random.choice(SPECIAL_CHARS))
     elif line == "RANDOM_CHAR":
-        sendString(random.choice(letters + letters.upper() + numbers + specialChars))
+        sendString(random.choice(LETTERS + LETTERS.upper() + NUMBERS + SPECIAL_CHARS))
     elif line == "VID_RANDOM" or line == "PID_RANDOM":
         for _ in range(4):
             sendString(random.choice("0123456789ABCDEF"))
     elif line == "MAN_RANDOM" or line == "PROD_RANDOM":
         for _ in range(12):
-            sendString(random.choice(letters + letters.upper() + numbers))
+            sendString(random.choice(LETTERS + LETTERS.upper() + NUMBERS))
     elif line == "SERIAL_RANDOM":
         for _ in range(12):
-            sendString(random.choice(letters + letters.upper() + numbers + specialChars))
+            sendString(random.choice(LETTERS + LETTERS.upper() + NUMBERS + SPECIAL_CHARS))
     elif line == "RESET":
         kbd.release_all()
     elif line == "SAVE_HOST_KEYBOARD_LOCK_STATE":
@@ -467,31 +471,34 @@ async def parseLine(line, script_lines):
         RestoreKeyboardLedState()
     elif line == "WAIT_FOR_SCROLL_CHANGE":
         last_scroll_state = _scrollOn()
-        while True: 
+        _wait_start = time.monotonic()
+        while (time.monotonic() - _wait_start) < _SCROLL_WAIT_TIMEOUT_SEC:
             current_scroll_state = _scrollOn()
             if current_scroll_state != last_scroll_state:
                 break
             await asyncio.sleep(0.01)
+        else:
+            print(f"[WARN] WAIT_FOR_SCROLL_CHANGE timed out after {_SCROLL_WAIT_TIMEOUT_SEC}s.")
     elif line in functions:
         updated_lines = []
         inside_while_block = False
         for func_line in functions[line]:
             if func_line.startswith("WHILE"):
-                inside_while_block = True  # Start skipping lines
+                inside_while_block = True
                 updated_lines.append(func_line)
             elif func_line.startswith("END_WHILE"):
-                inside_while_block = False  # Stop skipping lines
+                inside_while_block = False
                 updated_lines.append(func_line)
-                parseLine(updated_lines[0], iter(updated_lines))
-                updated_lines = []  # Clear updated_lines after parsing
+                await parseLine(updated_lines[0], iter(updated_lines))
+                updated_lines = []
             elif inside_while_block:
                 updated_lines.append(func_line)
             elif not (func_line.startswith("END_WHILE") or func_line.startswith("WHILE")):
-                parseLine(func_line, iter(functions[line]))
+                await parseLine(func_line, iter(functions[line]))
     else:
         runScriptLine(line)
     
-    return(script_lines)
+    return iter(script_lines)
 
 kbd = Keyboard(usb_hid.devices)
 consumerControl = ConsumerControl(usb_hid.devices)
@@ -521,39 +528,46 @@ async def runScript(file_path):
             with open(file_path, "r", encoding='utf-8') as f:
                 script_lines = iter(f.readlines())
                 previous_line = ""
-                
-                for line in script_lines:
+
+                while True:
+                    line = _safe_next(script_lines)
+                    if line is None:
+                        break
+
                     line_stripped = line.strip()
                     if not line_stripped:
                         continue
-                        
+
                     print(f"[EXEC] {line_stripped}")
-                    
+
                     if line_stripped.startswith("REPEAT"):
                         try:
                             repeats = int(line_stripped[7:].strip())
                             for _ in range(repeats):
-                                await parseLine(previous_line, script_lines)
+                                script_lines = await parseLine(previous_line, script_lines)
                                 await asyncio.sleep(defaultDelay / 1000.0)
                         except ValueError:
                             print(f"[ERROR] Invalid REPEAT syntax: {line_stripped}")
-                            
+
                     elif line_stripped.startswith("RESTART_PAYLOAD"):
+                        kbd.release_all()
                         restart = True
                         break
-                        
+
                     elif line_stripped.startswith("STOP_PAYLOAD"):
                         restart = False
                         break
-                        
+
                     else:
-                        await parseLine(line_stripped, script_lines)
+                        script_lines = await parseLine(line_stripped, script_lines)
                         previous_line = line_stripped
-                        
+
                     await asyncio.sleep(defaultDelay / 1000.0)
-                    
+
         except OSError as e:
             print(f"[FATAL ERROR] Failed to execute {file_path} from SD Card. Details: {e}")
+        finally:
+            kbd.release_all()
 
 def file_exists(path):
     try:
@@ -608,62 +622,25 @@ def selectPayload():
     print("[ERROR] No valid '.dd' payloads found on filesystem. Aborting execution.")
     return None
 
-async def blink_led(led):
-    if board.board_id in ('raspberry_pi_pico', 'raspberry_pi_pico2'):
-        await blink_pico_led(led)
-    elif board.board_id in ('raspberry_pi_pico_w', 'raspberry_pi_pico2_w'):
-        await blink_pico_w_led(led)
 
 async def blink_pico_led(led):
     led_state = False
     while True:
         if variables.get("$_EXFIL_LEDS_ENABLED"):
             led.duty_cycle = 65535
+            await asyncio.sleep(0.1)
         else:
             if led_state:
-                for i in range(100):
-                    if i < 50:
-                        led.duty_cycle = int(i * 2 * 65535 / 100) # Fade Up
-                    await asyncio.sleep(0.01)
+                for i in range(0, 100, 10):
+                    led.duty_cycle = int(i * 65535 / 100) # Fade Up
+                    await asyncio.sleep(0.05)
                 led_state = False
             else:
-                for i in range(100):
-                    if i >= 50:
-                        led.duty_cycle = 65535 - int((i - 50) * 2 * 65535 / 100) # Fade Down
-                    await asyncio.sleep(0.01)
+                for i in range(100, 0, -10):
+                    led.duty_cycle = int(i * 65535 / 100) # Fade Down
+                    await asyncio.sleep(0.05)
                 led_state = True
-        await asyncio.sleep(0)
 
-async def blink_pico_w_led(led):
-    led_state = False
-    while True:
-        if variables.get("$_EXFIL_LEDS_ENABLED"):
-            led.value = 1
-        else: 
-            led.value = 1 if led_state else 0
-            led_state = not led_state
-            await asyncio.sleep(0.5)
-        await asyncio.sleep(0)
-
-async def monitor_buttons(button1):
-    global inBlinkeyMode, inMenu, enableRandomBeep, enableSirenMode, pixel
-    button1Down = False
-    
-    while True:
-        button1.update()
-
-        if button1.fell:
-            button1Down = True
-            
-        if button1.rose:
-            if button1Down:
-                payload_path = selectPayload()
-                print(f"[ACTION] Button pressed. Triggering: {payload_path}")
-                await runScript(payload_path)
-                print("[ACTION] Execution completed.")
-            button1Down = False
-
-        await asyncio.sleep(0)
 
 async def monitor_led_changes():
     """
@@ -707,10 +684,10 @@ async def monitor_led_changes():
                             variables["$_EXFIL_LEDS_ENABLED"] = False
                             break            
                         
-                        await asyncio.sleep(0.001)
+                        await asyncio.sleep(0.01)
             except OSError as e:
                 print(f"[FATAL EXFIL ERROR] Could not write to SD Card: {e}")
             except Exception as e:
                 print(f"[FATAL EXFIL ERROR] Core loop failed: {e}")
 
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.1)
