@@ -7,9 +7,7 @@
 # Copyright (c) 2026  Nahum Silvestre Martinez
 # - RP2040 hardware adaptation and system modifications.
 #
-# TODO: ADD support for the following:
-# Add jitter
-# Add LED functionality
+import gc
 import os
 import re
 import time
@@ -96,8 +94,18 @@ defines = {}
 functions = {}
 
 LETTERS = "abcdefghijklmnopqrstuvwxyz"
+LETTERS_UPPER = LETTERS.upper()
 NUMBERS = "0123456789"
 SPECIAL_CHARS = "!@#$%^&*()"
+ALL_CHARS = LETTERS + LETTERS_UPPER + NUMBERS + SPECIAL_CHARS
+HEX_CHARS = NUMBERS + "ABCDEF"
+ALPHANUM_CHARS = LETTERS + LETTERS_UPPER + NUMBERS
+
+# Pre-compiled regex (avoid re-compilation per line)
+_RE_VAR_DECL = re.compile(r"VAR\s+\$(\w+)\s*=\s*(.+)")
+_RE_VAR_UPDATE = re.compile(r"\$(\w+)\s*=\s*(.+)")
+_RE_TRUE = re.compile(r'[Tt][Rr][Uu][Ee]')
+_RE_FALSE = re.compile(r'[Ff][Aa][Ll][Ss][Ee]')
 
 # Safety limits
 _WHILE_MAX_ITERATIONS = 100_000
@@ -200,23 +208,158 @@ def _getCodeBlock(linesIter):
         code.append(line)
     return code
 
-def replaceBooleans(text):
-    """Normalizes boolean literals to Python-compatible casing."""
-    text = re.sub(r'[Tt][Rr][Uu][Ee]', 'True', text)
-    text = re.sub(r'[Ff][Aa][Ll][Ss][Ee]', 'False', text)
-    return text
-
 def evaluateExpression(expression):
-    """Evaluates an expression with variables and returns the result."""
+    """Safely evaluate a DuckyScript expression using recursive descent parser."""
     expression = replaceVariables(expression)
-    expression = replaceBooleans(expression)
-    expression = expression.replace("^", "**")
-    expression = expression.replace("&&", "and")
-    expression = expression.replace("||", "or")
-    return eval(expression, {}, variables)
+    expression = _RE_TRUE.sub('True', expression)
+    expression = _RE_FALSE.sub('False', expression)
+    expression = expression.replace("&&", " and ").replace("||", " or ")
+    tokens = _tokenize(expression)
+    pos = [0]
 
-def deepcopy(List):
-    return(List[:])
+    def _peek():
+        return tokens[pos[0]] if pos[0] < len(tokens) else None
+
+    def _advance():
+        tok = tokens[pos[0]]
+        pos[0] += 1
+        return tok
+
+    def _parse_or():
+        left = _parse_and()
+        while _peek() == 'or':
+            _advance()
+            left = left or _parse_and()
+        return left
+
+    def _parse_and():
+        left = _parse_not()
+        while _peek() == 'and':
+            _advance()
+            left = left and _parse_not()
+        return left
+
+    def _parse_not():
+        if _peek() == 'not' or _peek() == '!':
+            _advance()
+            return not _parse_not()
+        return _parse_comparison()
+
+    def _parse_comparison():
+        left = _parse_add()
+        while _peek() in ('==', '!=', '<', '>', '<=', '>='):
+            op = _advance()
+            right = _parse_add()
+            if op == '==':
+                left = left == right
+            elif op == '!=':
+                left = left != right
+            elif op == '<':
+                left = left < right
+            elif op == '>':
+                left = left > right
+            elif op == '<=':
+                left = left <= right
+            elif op == '>=':
+                left = left >= right
+        return left
+
+    def _parse_add():
+        left = _parse_mul()
+        while _peek() in ('+', '-'):
+            op = _advance()
+            right = _parse_mul()
+            left = left + right if op == '+' else left - right
+        return left
+
+    def _parse_mul():
+        left = _parse_power()
+        while _peek() in ('*', '/', '%'):
+            op = _advance()
+            right = _parse_power()
+            if op == '*':
+                left = left * right
+            elif op == '/':
+                left = left / right
+            else:
+                left = left % right
+        return left
+
+    def _parse_power():
+        left = _parse_unary()
+        if _peek() == '**' or _peek() == '^':
+            _advance()
+            left = left ** _parse_power()
+        return left
+
+    def _parse_unary():
+        if _peek() == '-':
+            _advance()
+            return -_parse_unary()
+        if _peek() == '+':
+            _advance()
+            return _parse_unary()
+        return _parse_primary()
+
+    def _parse_primary():
+        tok = _peek()
+        if tok == '(':
+            _advance()
+            val = _parse_or()
+            if _peek() == ')':
+                _advance()
+            return val
+        _advance()
+        if tok == 'True':
+            return True
+        if tok == 'False':
+            return False
+        try:
+            return int(tok)
+        except (ValueError, TypeError):
+            pass
+        try:
+            return float(tok)
+        except (ValueError, TypeError):
+            pass
+        return tok
+
+    return _parse_or()
+
+def _tokenize(expr):
+    """Tokenize an expression string into operator and operand tokens."""
+    tokens = []
+    i = 0
+    s = expr.strip()
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if c == ' ' or c == '\t':
+            i += 1
+            continue
+        if i + 1 < n:
+            two = s[i:i+2]
+            if two in ('==', '!=', '<=', '>=', '**'):
+                tokens.append(two)
+                i += 2
+                continue
+        if c in '+-*/%^()!':
+            tokens.append(c)
+            i += 1
+            continue
+        j = i
+        while j < n and s[j] not in ' \t+-*/%^()!=<>':
+            j += 1
+        if j > i:
+            tokens.append(s[i:j])
+            i = j
+            continue
+        if c in '<>':
+            tokens.append(c)
+            i += 1
+            continue
+        i += 1
+    return tokens
 
 def convertLine(line):
     commands = []
@@ -392,7 +535,7 @@ async def parseLine(line, script_lines):
         led.value = not led.value
 
     elif line.startswith("VAR"):
-        match = re.match(r"VAR\s+\$(\w+)\s*=\s*(.+)", line)
+        match = _RE_VAR_DECL.match(line)
         if match:
             varName = f"${match.group(1)}"
             value = evaluateExpression(match.group(2))
@@ -400,13 +543,11 @@ async def parseLine(line, script_lines):
         else:
             raise SyntaxError(f"Invalid variable declaration: {line}")
     elif line.startswith("$"):
-        match = re.match(r"\$(\w+)\s*=\s*(.+)", line)
+        match = _RE_VAR_UPDATE.match(line)
         if match:
             varName = f"${match.group(1)}"
-            expression = match.group(2)
-            value = evaluateExpression(expression)
+            value = evaluateExpression(match.group(2))
             variables[varName] = value
-
         else:
             raise SyntaxError(f"Invalid variable update, declare variable first: {line}")
     elif line.startswith("DEFINE"):
@@ -427,16 +568,17 @@ async def parseLine(line, script_lines):
     elif line.startswith("WHILE"):
         condition = line[5:].strip()
         loopCode = list(_getCodeBlock(script_lines))
-        _iter_count = 0
-        while evaluateExpression(condition):
-            _iter_count += 1
-            if _iter_count > _WHILE_MAX_ITERATIONS:
-                print(f"[WARN] WHILE loop exceeded {_WHILE_MAX_ITERATIONS} iterations. Breaking to prevent hang.")
+        for _iter_count in range(_WHILE_MAX_ITERATIONS):
+            if not evaluateExpression(condition):
                 break
-            currentIterCode = deepcopy(loopCode)
-            while currentIterCode:
-                loopLine = currentIterCode.pop(0)
-                currentIterCode = list(await parseLine(loopLine, iter(currentIterCode)))
+            idx = 0
+            temp_lines = loopCode[:]
+            while idx < len(temp_lines):
+                remaining = iter(temp_lines[idx + 1:])
+                remaining = await parseLine(temp_lines[idx], remaining)
+                idx += 1
+        else:
+            print(f"[WARN] WHILE loop exceeded {_WHILE_MAX_ITERATIONS} iterations. Breaking.")
 
     elif line.upper().startswith("IF"):
         script_lines, ret = await IF(_getIfCondition(line), script_lines).runIf()
@@ -445,24 +587,24 @@ async def parseLine(line, script_lines):
     elif line == "RANDOM_LOWERCASE_LETTER":
         sendString(random.choice(LETTERS))
     elif line == "RANDOM_UPPERCASE_LETTER":
-        sendString(random.choice(LETTERS.upper()))
+        sendString(random.choice(LETTERS_UPPER))
     elif line == "RANDOM_LETTER":
-        sendString(random.choice(LETTERS + LETTERS.upper()))
+        sendString(random.choice(LETTERS + LETTERS_UPPER))
     elif line == "RANDOM_NUMBER":
         sendString(random.choice(NUMBERS))
     elif line == "RANDOM_SPECIAL":
         sendString(random.choice(SPECIAL_CHARS))
     elif line == "RANDOM_CHAR":
-        sendString(random.choice(LETTERS + LETTERS.upper() + NUMBERS + SPECIAL_CHARS))
+        sendString(random.choice(ALL_CHARS))
     elif line == "VID_RANDOM" or line == "PID_RANDOM":
         for _ in range(4):
-            sendString(random.choice("0123456789ABCDEF"))
+            sendString(random.choice(HEX_CHARS))
     elif line == "MAN_RANDOM" or line == "PROD_RANDOM":
         for _ in range(12):
-            sendString(random.choice(LETTERS + LETTERS.upper() + NUMBERS))
+            sendString(random.choice(ALPHANUM_CHARS))
     elif line == "SERIAL_RANDOM":
         for _ in range(12):
-            sendString(random.choice(LETTERS + LETTERS.upper() + NUMBERS + SPECIAL_CHARS))
+            sendString(random.choice(ALL_CHARS))
     elif line == "RESET":
         kbd.release_all()
     elif line == "SAVE_HOST_KEYBOARD_LOCK_STATE":
@@ -521,6 +663,8 @@ async def runScript(file_path):
     if not file_path.startswith("/sd/"):
         file_path = f"/sd/{file_path.lstrip('/')}"
 
+    gc.collect()  # Pre-execution memory cleanup
+
     restart = True
     while restart:
         restart = False
@@ -568,6 +712,7 @@ async def runScript(file_path):
             print(f"[FATAL ERROR] Failed to execute {file_path} from SD Card. Details: {e}")
         finally:
             kbd.release_all()
+            gc.collect()  # Post-execution memory cleanup
 
 def file_exists(path):
     try:
