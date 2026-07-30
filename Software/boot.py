@@ -1,5 +1,8 @@
 # boot.py - Hardware USB Profile & Fingerprint Manager
 # Executes BEFORE USB enumeration to the host PC
+#
+# NOTE: GP0 is read here via context manager (released after read).
+# pins.py will reclaim GP0 for runtime use in code.py.
 
 import board
 import digitalio
@@ -9,36 +12,50 @@ import usb_cdc
 import usb_midi
 import usb_hid
 
-SETUP_PIN = board.GP0
+_FW_VERSION = "2.1.0"
+_SETUP_PIN = board.GP0
 
-def is_dev_mode_active() -> bool:
+
+def _is_dev_mode_active():
     """Safely reads hardware jumper without locking GPIO resources."""
     try:
-        with digitalio.DigitalInOut(SETUP_PIN) as jumper:
+        with digitalio.DigitalInOut(_SETUP_PIN) as jumper:
             jumper.switch_to_input(pull=digitalio.Pull.UP)
             return not jumper.value
     except Exception:
         return False
 
-def configure_usb_profile():
+
+def _configure_usb_profile():
+    """Configure USB identity and peripheral visibility based on hardware mode."""
+    # 1. Override hardware descriptors for stealth (BYOC model)
+    #    VID 0x1209 = pid.codes open-source community
+    #    PID 0x0001 = Generic HID keyboard
     supervisor.set_usb_identification(
         vid=0x1209,
         pid=0x0001,
         manufacturer="Generic",
         product="USB Keyboard"
     )
-    
-    if is_dev_mode_active():
-        print("[BOOT] DEV MODE: Storage & Serial CDC enabled.")
+
+    if _is_dev_mode_active():
+        print(f"[BOOT v{_FW_VERSION}] DEV MODE: Storage & Serial CDC enabled.")
         return
 
     # 2. Attack Mode: Minimize USB fingerprint to HID only
-    print("[BOOT] ATTACK MODE: Stealth generic HID profile active.")
+    print(f"[BOOT v{_FW_VERSION}] ATTACK MODE: Stealth generic HID profile active.")
     storage.disable_usb_drive()
     usb_cdc.disable()
     usb_midi.disable()
-    
-    # 3. Configure HID interface
+
+    # 3. Protect internal filesystem from corruption on unexpected power loss
+    try:
+        storage.remount("/", readonly=True)
+    except RuntimeError:
+        # May fail if filesystem is already in the desired state
+        pass
+
+    # 4. Configure HID interface — only keyboard + consumer control
     usb_hid.enable(
         (usb_hid.Device.KEYBOARD, usb_hid.Device.CONSUMER_CONTROL),
         boot_device=1
@@ -48,4 +65,5 @@ def configure_usb_profile():
     except AttributeError:
         pass
 
-configure_usb_profile()
+
+_configure_usb_profile()

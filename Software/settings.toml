@@ -1,0 +1,30 @@
+# =============================================================================
+# USB Pico Ducky — Runtime Configuration
+# =============================================================================
+# This file is read by CircuitPython at boot via os.getenv().
+# Only strings and integers are supported as value types.
+# Lines starting with '#' are comments.
+#
+# IMPORTANT: Changes to this file require a device reboot to take effect.
+# =============================================================================
+
+# Default inter-command delay in milliseconds (0 = no delay)
+DEFAULT_DELAY_MS = 0
+
+# Payload file extension (must include the dot)
+PAYLOAD_EXTENSION = ".dd"
+
+# SD card mount timeout in seconds (integer only)
+SD_MOUNT_TIMEOUT_SEC = 2
+
+# Logging verbosity: "DEBUG", "INFO", "WARN", "ERROR", "FATAL"
+LOG_LEVEL = "INFO"
+
+# SD card filesystem polling interval in milliseconds
+SD_POLL_INTERVAL_MS = 100
+
+# Maximum iterations for WHILE loops (safety limit)
+WHILE_MAX_ITERATIONS = 100000
+
+# WAIT_FOR_SCROLL_CHANGE timeout in seconds
+SCROLL_WAIT_TIMEOUT_SEC = 120

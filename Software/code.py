@@ -3,6 +3,9 @@
 # Author: Dave Bailey (dbisu, @daveisu)
 # Refactored: 2026 - Optimized Async Polling & Zero-RAM Allocations
 
+import gc
+import asyncio
+import digitalio
 import supervisor
 import os
 import pwmio
@@ -11,10 +14,21 @@ import board
 import busio
 import storage
 
-from duckyinpython import *
+from duckyinpython import (
+    runScript,
+    selectPayload,
+    file_exists,
+    getProgrammingStatus,
+    blink_pico_led,
+    monitor_led_changes,
+)
 
-def log(level: str, msg: str):
+gc.collect()  # Reclaim memory after heavy imports
+
+
+def log(level, msg):
     print(f"[{level}] {msg}")
+
 
 log("INFO", "Initializing Hardware Execution Engine")
 time.sleep(0.15)
@@ -25,7 +39,7 @@ sd_mounted = False
 try:
     log("INFO", "Configuring SPI bus (SCK:GP18, MOSI:GP19, MISO:GP16, CS:GP17)")
     spi = busio.SPI(clock=board.GP18, MOSI=board.GP19, MISO=board.GP16)
-    
+
     try:
         import sdcardio
         sdcard = sdcardio.SDCard(spi, board.GP17)
@@ -40,7 +54,7 @@ try:
     storage.mount(vfs, "/sd")
     sd_mounted = True
     log("SUCCESS", "MicroSD mounted at /sd")
-    
+
 except Exception as e:
     log("WARN", f"SD Mount failed ({e}). Flash memory fallback active.")
 
@@ -59,9 +73,10 @@ async def wait_for_sd_ready_async(timeout_sec=2.0, interval=0.1):
             log("SUCCESS", "SD Card filesystem ready.")
             return True
         await asyncio.sleep(interval)
-        
+
     log("WARN", "SD Card filesystem indexing timeout.")
     return False
+
 
 async def run_payload_on_startup():
     if getProgrammingStatus():
@@ -84,20 +99,24 @@ async def run_payload_on_startup():
     else:
         log("ERROR", f"Target payload '{payload_path}' unreachable.")
 
+
 async def main_loop():
     log("INFO", "Starting asynchronous kernel loop")
+    gc.collect()  # Clean heap before spawning async tasks
+
     tasks = [
         asyncio.create_task(blink_pico_led(led)),
         asyncio.create_task(monitor_led_changes()),
         asyncio.create_task(run_payload_on_startup())
     ]
-    
+
     try:
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
         log("WARN", "Async tasks cancelled cleanly.")
     except Exception as e:
         log("ERROR", f"Runtime exception in task execution: {e}")
+
 
 try:
     asyncio.run(main_loop())

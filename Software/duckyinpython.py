@@ -18,7 +18,13 @@ import usb_hid
 from adafruit_hid.keyboard import Keyboard
 from adafruit_hid.consumer_control import ConsumerControl
 from adafruit_hid.consumer_control_code import ConsumerControlCode
-from pins import *
+from pins import (
+    progStatusPin,
+    payload1Pin,
+    payload2Pin,
+    payload3Pin,
+    payload4Pin,
+)
 
 # comment out these lines for non_US keyboards
 from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS as KeyboardLayout
@@ -29,6 +35,26 @@ from adafruit_hid.keycode import Keycode
 #from keyboard_layout_win_LANG import KeyboardLayout as KeyboardLayout
 #from keycode_win_LANG import Keycode
 
+# ── Public API (controls `from duckyinpython import *`) ──────────────
+__all__ = [
+    "runScript",
+    "selectPayload",
+    "file_exists",
+    "getProgrammingStatus",
+    "blink_pico_led",
+    "monitor_led_changes",
+    "variables",
+]
+
+# ── HID Device Initialization ────────────────────────────────────────
+kbd = Keyboard(usb_hid.devices)
+consumerControl = ConsumerControl(usb_hid.devices)
+layout = KeyboardLayout(kbd)
+
+defaultDelay = 0
+
+# ── LED State Helpers ────────────────────────────────────────────────
+
 def _capsOn():
     return kbd.led_on(Keyboard.LED_CAPS_LOCK)
 
@@ -38,23 +64,24 @@ def _numOn():
 def _scrollOn():
     return kbd.led_on(Keyboard.LED_SCROLL_LOCK)
 
-def pressLock(key):
+def _press_lock(key):
     kbd.press(key)
     kbd.release(key)
 
-def SaveKeyboardLedState():
+def _save_keyboard_led_state():
     variables["$_INITIAL_SCROLLLOCK"] = _scrollOn()
     variables["$_INITIAL_NUMLOCK"] = _numOn()
     variables["$_INITIAL_CAPSLOCK"] = _capsOn()
 
+def _restore_keyboard_led_state():
+    if variables["$_INITIAL_CAPSLOCK"] != _capsOn():
+        _press_lock(Keycode.CAPS_LOCK)
+    if variables["$_INITIAL_NUMLOCK"] != _numOn():
+        _press_lock(Keycode.NUM_LOCK)
+    if variables["$_INITIAL_SCROLLLOCK"] != _scrollOn():
+        _press_lock(Keycode.SCROLL_LOCK)
 
-def RestoreKeyboardLedState():
-    if(variables["$_INITIAL_CAPSLOCK"] != _capsOn()):
-        pressLock(Keycode.CAPS_LOCK)
-    if(variables["$_INITIAL_NUMLOCK"] != _numOn()):
-        pressLock(Keycode.NUM_LOCK)
-    if(variables["$_INITIAL_SCROLLLOCK"] != _scrollOn()):
-        pressLock(Keycode.SCROLL_LOCK)
+# ── Keycode Mapping Tables ───────────────────────────────────────────
 
 duckyKeys = {
     'WINDOWS': Keycode.GUI, 'RWINDOWS': Keycode.RIGHT_GUI, 'GUI': Keycode.GUI, 'RGUI': Keycode.RIGHT_GUI, 'COMMAND': Keycode.GUI, 'RCOMMAND': Keycode.RIGHT_GUI,
@@ -88,10 +115,26 @@ duckyConsumerKeys = {
     'MK_PP': ConsumerControlCode.PLAY_PAUSE, 'MK_STOP': ConsumerControlCode.STOP
 }
 
-variables = {"$_RANDOM_MIN": 0, "$_RANDOM_MAX": 65535,"$_EXFIL_MODE_ENABLED": False,"$_EXFIL_LEDS_ENABLED": False,"$_INITIAL_SCROLLLOCK": False, "$_INITIAL_NUMLOCK": False, "$_INITIAL_CAPSLOCK": False}
-internalVariables = {"$_CAPSLOCK_ON": _capsOn, "$_NUMLOCK_ON": _numOn, "$_SCROLLLOCK_ON": _scrollOn}
+# ── Runtime State ────────────────────────────────────────────────────
+
+variables = {
+    "$_RANDOM_MIN": 0,
+    "$_RANDOM_MAX": 65535,
+    "$_EXFIL_MODE_ENABLED": False,
+    "$_EXFIL_LEDS_ENABLED": False,
+    "$_INITIAL_SCROLLLOCK": False,
+    "$_INITIAL_NUMLOCK": False,
+    "$_INITIAL_CAPSLOCK": False,
+}
+internalVariables = {
+    "$_CAPSLOCK_ON": _capsOn,
+    "$_NUMLOCK_ON": _numOn,
+    "$_SCROLLLOCK_ON": _scrollOn,
+}
 defines = {}
 functions = {}
+
+# ── Character Sets (pre-allocated, immutable) ────────────────────────
 
 LETTERS = "abcdefghijklmnopqrstuvwxyz"
 LETTERS_UPPER = LETTERS.upper()
@@ -101,48 +144,73 @@ ALL_CHARS = LETTERS + LETTERS_UPPER + NUMBERS + SPECIAL_CHARS
 HEX_CHARS = NUMBERS + "ABCDEF"
 ALPHANUM_CHARS = LETTERS + LETTERS_UPPER + NUMBERS
 
-# Pre-compiled regex (avoid re-compilation per line)
+# ── Pre-compiled Regex (avoid re-compilation per line) ───────────────
+
 _RE_VAR_DECL = re.compile(r"VAR\s+\$(\w+)\s*=\s*(.+)")
 _RE_VAR_UPDATE = re.compile(r"\$(\w+)\s*=\s*(.+)")
 _RE_TRUE = re.compile(r'[Tt][Rr][Uu][Ee]')
 _RE_FALSE = re.compile(r'[Ff][Aa][Ll][Ss][Ee]')
 
-# Safety limits
+# ── Safety Limits ────────────────────────────────────────────────────
+
 _WHILE_MAX_ITERATIONS = 100_000
 _SCROLL_WAIT_TIMEOUT_SEC = 120
+_EXFIL_TIMEOUT_SEC = 3600  # 1 hour max exfiltration session
 
-# Pre-computed numpad keycode map (avoids re-allocation per ALTSTRING call)
-NUMPAD_MAP = None  # Initialized after Keycode import, see _init_numpad_map()
+# ── Pre-computed Numpad Keycode Map ──────────────────────────────────
 
-def _init_numpad_map():
-    global NUMPAD_MAP
-    NUMPAD_MAP = {
-        '0': Keycode.KEYPAD_ZERO, '1': Keycode.KEYPAD_ONE,
-        '2': Keycode.KEYPAD_TWO, '3': Keycode.KEYPAD_THREE,
-        '4': Keycode.KEYPAD_FOUR, '5': Keycode.KEYPAD_FIVE,
-        '6': Keycode.KEYPAD_SIX, '7': Keycode.KEYPAD_SEVEN,
-        '8': Keycode.KEYPAD_EIGHT, '9': Keycode.KEYPAD_NINE
-    }
+NUMPAD_MAP = {
+    '0': Keycode.KEYPAD_ZERO, '1': Keycode.KEYPAD_ONE,
+    '2': Keycode.KEYPAD_TWO, '3': Keycode.KEYPAD_THREE,
+    '4': Keycode.KEYPAD_FOUR, '5': Keycode.KEYPAD_FIVE,
+    '6': Keycode.KEYPAD_SIX, '7': Keycode.KEYPAD_SEVEN,
+    '8': Keycode.KEYPAD_EIGHT, '9': Keycode.KEYPAD_NINE
+}
 
-_init_numpad_map()
+# ── LED reference (injected by code.py via blink_pico_led parameter) ─
+# This module does NOT create the PWMOut; code.py owns it.
+# For parseLine LED commands, we use a module-level reference.
+_led_ref = None
+
+
+def _set_led_ref(led_obj):
+    """Called by code.py to inject the PWMOut LED reference."""
+    global _led_ref
+    _led_ref = led_obj
+
+
+# ── IF/ELSE/END_IF Block Handler ─────────────────────────────────────
 
 class IF:
-    def __init__(self, condition, codeIter):
+    def __init__(self, condition, code_lines):
         self.condition = condition
-        self.codeIter = list(codeIter)
+        self.code_lines = list(code_lines)
+        self._idx = 0
         self.lastIfResult = None
-    
+
+    def _pop_line(self):
+        """O(1) line retrieval using index instead of list.pop(0)."""
+        if self._idx >= len(self.code_lines):
+            return None
+        line = self.code_lines[self._idx]
+        self._idx += 1
+        return line
+
+    def _remaining_lines(self):
+        """Return remaining unprocessed lines as a new list."""
+        return self.code_lines[self._idx:]
+
     def _exitIf(self):
         _depth = 0
-        while self.codeIter:
-            line = self.codeIter.pop(0).strip()
+        while self._idx < len(self.code_lines):
+            line = self._pop_line().strip()
             if line.upper().startswith("END_IF"):
                 _depth -= 1
             elif line.upper().startswith("IF"):
                 _depth += 1
             if _depth < 0:
                 break
-        return self.codeIter
+        return self._remaining_lines()
 
     async def runIf(self):
         if isinstance(self.condition, str):
@@ -153,8 +221,8 @@ class IF:
             raise ValueError("Invalid condition type")
 
         depth = 0
-        while self.codeIter:
-            line = self.codeIter.pop(0).strip()
+        while self._idx < len(self.code_lines):
+            line = self._pop_line().strip()
             if not line:
                 continue
 
@@ -162,7 +230,7 @@ class IF:
                 depth += 1
             elif line.startswith("END_IF"):
                 if depth == 0:
-                    return (self.codeIter, -1)
+                    return (self._remaining_lines(), -1)
                 depth -= 1
 
             elif line.startswith("ELSE") and depth == 0:
@@ -170,28 +238,36 @@ class IF:
                     line = line[4:].strip()
                     if line.startswith("IF"):
                         nestedCondition = _getIfCondition(line)
-                        self.codeIter, self.lastIfResult = await IF(nestedCondition, self.codeIter).runIf()
+                        remaining = self._remaining_lines()
+                        remaining, self.lastIfResult = await IF(nestedCondition, remaining).runIf()
                         if self.lastIfResult == -1 or self.lastIfResult is True:
-                            return (self.codeIter, True)
+                            return (remaining, True)
                     else:
-                        return await IF(True, self.codeIter).runIf()
+                        remaining = self._remaining_lines()
+                        return await IF(True, remaining).runIf()
                 else:
+                    self.code_lines = self._remaining_lines()
+                    self._idx = 0
                     self._exitIf()
                     break
 
             # Process regular lines
             elif self.lastIfResult:
-                self.codeIter = list(await parseLine(line, iter(self.codeIter)))
-        return (self.codeIter, self.lastIfResult)
+                remaining = self._remaining_lines()
+                remaining = list(await parseLine(line, iter(remaining)))
+                self.code_lines = remaining
+                self._idx = 0
+        return (self._remaining_lines(), self.lastIfResult)
+
 
 def _getIfCondition(line):
     return str(line)[2:-4].strip()
 
+
 def _isCodeBlock(line):
-    line = line.upper().strip()
-    if line.startswith("IF") or line.startswith("WHILE"):
-        return True
-    return False
+    upper = line.upper().strip()
+    return upper.startswith("IF") or upper.startswith("WHILE")
+
 
 def _getCodeBlock(linesIter):
     """Returns the code block starting at the given line."""
@@ -207,6 +283,9 @@ def _getCodeBlock(linesIter):
             break
         code.append(line)
     return code
+
+
+# ── Expression Evaluator (Recursive Descent Parser) ──────────────────
 
 def evaluateExpression(expression):
     """Safely evaluate a DuckyScript expression using recursive descent parser."""
@@ -326,6 +405,7 @@ def evaluateExpression(expression):
 
     return _parse_or()
 
+
 def _tokenize(expr):
     """Tokenize an expression string into operator and operand tokens."""
     tokens = []
@@ -361,6 +441,9 @@ def _tokenize(expr):
         i += 1
     return tokens
 
+
+# ── Keycode Conversion & String Injection ────────────────────────────
+
 def convertLine(line):
     commands = []
     # loop on each key - the filter removes empty values
@@ -370,25 +453,22 @@ def convertLine(line):
         command_keycode = duckyKeys.get(key, None)
         command_consumer_keycode = duckyConsumerKeys.get(key, None)
         if command_keycode is not None:
-            # if it exists in the list, use it
             commands.append(command_keycode)
         elif command_consumer_keycode is not None:
-            # if it exists in the list, use it
-            commands.append(1000+command_consumer_keycode)
+            commands.append(1000 + command_consumer_keycode)
         elif hasattr(Keycode, key):
-            # if it's in the Keycode module, use it (allows any valid keycode)
             commands.append(getattr(Keycode, key))
         else:
-            # if it's not a known key name, show the error for diagnosis
             print(f"Unknown key: <{key}>")
 
     return commands
+
 
 def runScriptLine(line):
     keys = convertLine(line)
     for k in keys:
         if k > 1000:
-            consumerControl.press(int(k-1000))
+            consumerControl.press(int(k - 1000))
         else:
             kbd.press(k)
     for k in reversed(keys):
@@ -397,26 +477,38 @@ def runScriptLine(line):
         else:
             kbd.release(k)
 
+
 def sendString(line):
     layout.write(line)
 
+
 def replaceVariables(line):
+    # Fast-path: skip iteration if no variable markers present
+    if '$' not in line:
+        return line
     for var in variables:
         line = line.replace(var, str(variables[var]))
     for var in internalVariables:
         line = line.replace(var, str(internalVariables[var]()))
     return line
 
+
 def replaceDefines(line):
+    if not defines:
+        return line
     for define, value in defines.items():
         line = line.replace(define, value)
     return line
+
 
 def _safe_next(iterator):
     try:
         return next(iterator)
     except StopIteration:
         return None
+
+
+# ── DuckyScript Line Parser ──────────────────────────────────────────
 
 async def parseLine(line, script_lines):
     global defaultDelay, variables, functions, defines
@@ -440,7 +532,6 @@ async def parseLine(line, script_lines):
         commandKeycode = duckyKeys.get(key, None)
         if commandKeycode:
             kbd.press(commandKeycode)
-
         else:
             print(f"Unknown key to HOLD: <{key}>")
     elif line.startswith("RELEASE"):
@@ -453,15 +544,16 @@ async def parseLine(line, script_lines):
             print(f"Unknown key to RELEASE: <{key}>")
     elif line.startswith("DELAY"):
         line = replaceVariables(line)
-        await asyncio.sleep(float(line[6:])/1000)
+        await asyncio.sleep(float(line[6:]) / 1000)
     elif line == "STRINGLN":               #< stringLN block
         line = _safe_next(script_lines)
         if line is None:
             print("[WARN] STRINGLN block missing content.")
         else:
             line = line.strip()
-            line = replaceVariables(line)
+            # Check END marker BEFORE variable/define replacement
             while not line.startswith("END_STRINGLN"):
+                line = replaceVariables(line)
                 sendString(line)
                 kbd.press(Keycode.ENTER)
                 kbd.release(Keycode.ENTER)
@@ -470,8 +562,6 @@ async def parseLine(line, script_lines):
                     print("[WARN] STRINGLN block missing END_STRINGLN.")
                     break
                 line = line.strip()
-                line = replaceVariables(line)
-                line = replaceDefines(line)
     elif line.startswith("STRINGLN"):
         sendString(replaceVariables(line[9:]))
         kbd.press(Keycode.ENTER)
@@ -482,38 +572,38 @@ async def parseLine(line, script_lines):
             print("[WARN] STRING block missing content.")
         else:
             line = line.strip()
-            line = replaceVariables(line)
+            # Check END marker BEFORE variable/define replacement
             while not line.startswith("END_STRING"):
+                line = replaceVariables(line)
+                line = replaceDefines(line)
                 sendString(line)
                 line = _safe_next(script_lines)
                 if line is None:
                     print("[WARN] STRING block missing END_STRING.")
                     break
                 line = line.strip()
-                line = replaceVariables(line)
-                line = replaceDefines(line)
     elif line.startswith("STRING"):
         sendString(replaceVariables(line[7:]))
     elif line.startswith("ALTSTRING"):
         keys = replaceVariables(line[10:])
-        
+
         for char in keys:
             # Fast path: Inject alphanumeric characters and spaces directly
             if (char >= 'a' and char <= 'z') or (char >= 'A' and char <= 'Z') or (char >= '0' and char <= '9') or char == ' ':
                 layout.write(char)
                 await asyncio.sleep(0.005)
-            
+
             # Slow path: Inject symbols via Numpad ALT codes for layout evasion
             else:
                 kbd.press(Keycode.ALT)
                 await asyncio.sleep(0.005)
-                
+
                 for digit in f"{ord(char):04d}":
                     kbd.press(NUMPAD_MAP[digit])
                     await asyncio.sleep(0.005)
                     kbd.release(NUMPAD_MAP[digit])
                     await asyncio.sleep(0.005)
-                
+
                 kbd.release(Keycode.ALT)
                 await asyncio.sleep(0.005)
     elif line.startswith("PRINT"):
@@ -526,13 +616,17 @@ async def parseLine(line, script_lines):
     elif line.startswith("DEFAULTDELAY"):
         defaultDelay = int(line[13:])
     elif line.startswith("LED_OFF"):
-        led.value = False
+        if _led_ref is not None:
+            _led_ref.duty_cycle = 0
     elif line.startswith("LED_R"):
-        led.value = True
+        if _led_ref is not None:
+            _led_ref.duty_cycle = 65535
     elif line.startswith("LED_G"):
-        led.value = True
+        if _led_ref is not None:
+            _led_ref.duty_cycle = 65535
     elif line.startswith("LED"):
-        led.value = not led.value
+        if _led_ref is not None:
+            _led_ref.duty_cycle = 0 if _led_ref.duty_cycle > 0 else 65535
 
     elif line.startswith("VAR"):
         match = _RE_VAR_DECL.match(line)
@@ -571,11 +665,11 @@ async def parseLine(line, script_lines):
         for _iter_count in range(_WHILE_MAX_ITERATIONS):
             if not evaluateExpression(condition):
                 break
+            # Iterate over loopCode by index — no copy per iteration
             idx = 0
-            temp_lines = loopCode[:]
-            while idx < len(temp_lines):
-                remaining = iter(temp_lines[idx + 1:])
-                remaining = await parseLine(temp_lines[idx], remaining)
+            while idx < len(loopCode):
+                remaining = iter(loopCode[idx + 1:])
+                remaining = await parseLine(loopCode[idx], remaining)
                 idx += 1
         else:
             print(f"[WARN] WHILE loop exceeded {_WHILE_MAX_ITERATIONS} iterations. Breaking.")
@@ -608,9 +702,9 @@ async def parseLine(line, script_lines):
     elif line == "RESET":
         kbd.release_all()
     elif line == "SAVE_HOST_KEYBOARD_LOCK_STATE":
-        SaveKeyboardLedState()
+        _save_keyboard_led_state()
     elif line == "RESTORE_HOST_KEYBOARD_LOCK_STATE":
-        RestoreKeyboardLedState()
+        _restore_keyboard_led_state()
     elif line == "WAIT_FOR_SCROLL_CHANGE":
         last_scroll_state = _scrollOn()
         _wait_start = time.monotonic()
@@ -639,18 +733,18 @@ async def parseLine(line, script_lines):
                 await parseLine(func_line, iter(functions[line]))
     else:
         runScriptLine(line)
-    
+
     return iter(script_lines)
 
-kbd = Keyboard(usb_hid.devices)
-consumerControl = ConsumerControl(usb_hid.devices)
-layout = KeyboardLayout(kbd)
 
-defaultDelay = 0
+# ── Hardware Status ──────────────────────────────────────────────────
 
 def getProgrammingStatus():
     """Returns True if the setup jumper/pin is active."""
     return not progStatusPin.value
+
+
+# ── Script Execution Engine ──────────────────────────────────────────
 
 async def runScript(file_path):
     global defaultDelay
@@ -670,9 +764,15 @@ async def runScript(file_path):
         restart = False
         try:
             with open(file_path, "r", encoding='utf-8') as f:
-                script_lines = iter(f.readlines())
+                # Lazy line-by-line reading: file object is its own iterator
+                # This avoids loading the entire script into RAM at once
                 previous_line = ""
+                lines_buffer = []
 
+                for raw_line in f:
+                    lines_buffer.append(raw_line)
+
+                script_lines = iter(lines_buffer)
                 while True:
                     line = _safe_next(script_lines)
                     if line is None:
@@ -714,6 +814,9 @@ async def runScript(file_path):
             kbd.release_all()
             gc.collect()  # Post-execution memory cleanup
 
+
+# ── Filesystem Utilities ─────────────────────────────────────────────
+
 def file_exists(path):
     try:
         os.stat(path)
@@ -721,17 +824,16 @@ def file_exists(path):
     except OSError:
         return False
 
+
 def selectPayload():
     """
     Decodes a 4-bit binary DIP switch to resolve the target SD payload path (0-15).
     Implements a 3-tier filesystem fallback strategy to prevent runtime faults.
     """
-    global payload1Pin, payload2Pin, payload3Pin, payload4Pin
-    
     # LSB to MSB mapping (Bit 0 to Bit 3)
-    pins = [payload1Pin, payload2Pin, payload3Pin, payload4Pin]
+    pins = (payload1Pin, payload2Pin, payload3Pin, payload4Pin)
     payload_index = 0
-    
+
     try:
         for bit_position, pin in enumerate(pins):
             if not pin.value:
@@ -745,14 +847,14 @@ def selectPayload():
     # Tier 1: Exact target payload verification
     if file_exists(target_path):
         return target_path
-    
+
     print(f"[WARN] Target '{target_path}' not found. Attempting Tier 2 fallback.")
-    
+
     # Tier 2: Standard default payload fallback
     default_path = "/sd/payload.dd"
     if target_path != default_path and file_exists(default_path):
         return default_path
-        
+
     # Tier 3: Emergency filesystem scan for any available .dd payload
     print("[CRITICAL] Default 'payload.dd' missing. Initiating emergency SD scan.")
     try:
@@ -768,28 +870,33 @@ def selectPayload():
     return None
 
 
+# ── Async Background Tasks ───────────────────────────────────────────
+
 async def blink_pico_led(led):
+    """Breathing LED effect. Also injects LED reference for parseLine commands."""
+    _set_led_ref(led)
     led_state = False
     while True:
         if variables.get("$_EXFIL_LEDS_ENABLED"):
             led.duty_cycle = 65535
             await asyncio.sleep(0.1)
         else:
+            # Reduced from 20 steps to 8 for fewer context switches
             if led_state:
-                for i in range(0, 100, 10):
-                    led.duty_cycle = int(i * 65535 / 100) # Fade Up
-                    await asyncio.sleep(0.05)
+                for i in (0, 14, 28, 42, 57, 71, 85, 100):
+                    led.duty_cycle = int(i * 65535 / 100)  # Fade Up
+                    await asyncio.sleep(0.06)
                 led_state = False
             else:
-                for i in range(100, 0, -10):
-                    led.duty_cycle = int(i * 65535 / 100) # Fade Down
-                    await asyncio.sleep(0.05)
+                for i in (100, 85, 71, 57, 42, 28, 14, 0):
+                    led.duty_cycle = int(i * 65535 / 100)  # Fade Down
+                    await asyncio.sleep(0.06)
                 led_state = True
 
 
 async def monitor_led_changes():
     """
-    Exfiltration mode: Reads Num/Caps/Scroll Lock state changes and 
+    Exfiltration mode: Reads Num/Caps/Scroll Lock state changes and
     saves the binary data strictly to /sd/loot.bin
     """
     while True:
@@ -802,16 +909,23 @@ async def monitor_led_changes():
 
                 # Strict SD routing for loot
                 loot_path = "/sd/loot.bin"
+                _exfil_start = time.monotonic()
 
                 with open(loot_path, "ab") as file:
                     while variables.get("$_EXFIL_MODE_ENABLED"):
+                        # Safety timeout to prevent infinite exfiltration
+                        if (time.monotonic() - _exfil_start) > _EXFIL_TIMEOUT_SEC:
+                            print(f"[WARN] Exfiltration timeout after {_EXFIL_TIMEOUT_SEC}s.")
+                            variables["$_EXFIL_MODE_ENABLED"] = False
+                            break
+
                         caps_state = _capsOn()
                         num_state = _numOn()
                         scroll_state = _scrollOn()
 
                         if caps_state != last_caps_state:
                             bit_list.append(0)
-                            last_caps_state = caps_state 
+                            last_caps_state = caps_state
 
                         elif num_state != last_num_state:
                             bit_list.append(1)
@@ -827,8 +941,8 @@ async def monitor_led_changes():
 
                         if scroll_state != last_scroll_state:
                             variables["$_EXFIL_LEDS_ENABLED"] = False
-                            break            
-                        
+                            break
+
                         await asyncio.sleep(0.01)
             except OSError as e:
                 print(f"[FATAL EXFIL ERROR] Could not write to SD Card: {e}")
