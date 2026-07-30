@@ -1,0 +1,109 @@
+REM ==================================================================
+REM PICO DUCKY - MASTER DIAGNOSTIC PAYLOAD
+REM Target: Windows OS
+REM Purpose: Safely demonstrates ALL supported features with moderate delays.
+REM ==================================================================
+
+PRINT [SYSTEM] Starting diagnostic payload...
+LED_G
+
+REM --- 1. OVERCLOCKING ---
+OVERCLOCK 200
+DELAY 1000
+
+REM --- 2. ENVIRONMENT SETUP (Open Notepad) ---
+GUI r
+DELAY 800
+STRING notepad
+DELAY 300
+ENTER
+DELAY 1500
+GUI UP
+DELAY 800
+
+REM --- 3. BASIC INJECTION & JITTER ---
+STRINGLN ==========================================
+STRINGLN PICO DUCKY - FULL SYSTEM DIAGNOSTIC
+STRINGLN ==========================================
+DELAY 500
+
+JITTER 30 100
+STRINGLN [+] JITTER ENABLED: Typing this sentence with human-like delays.
+JITTER OFF
+DELAY 500
+
+REM --- 4. ALTSTRING (Bypasses Keyboard Layouts) ---
+STRING [+] ALTSTRING DEMO: 
+ALTSTRING ~!@#$%^&*()_+
+ENTER
+DELAY 500
+
+REM --- 5. MOUSE HID EMULATION ---
+STRINGLN [+] MOUSE DEMO: Moving cursor in a square...
+DELAY 500
+MOUSE_MOVE 100 0
+DELAY 300
+MOUSE_MOVE 0 100
+DELAY 300
+MOUSE_MOVE -100 0
+DELAY 300
+MOUSE_MOVE 0 -100
+DELAY 300
+
+STRINGLN [+] MOUSE DEMO: Scrolling and clicking...
+MOUSE_SCROLL -5
+DELAY 300
+MOUSE_CLICK RIGHT
+DELAY 500
+ESC
+DELAY 500
+
+REM --- 6. VARIABLES, MATH, & LOGIC (IF/ELSE) ---
+VAR $TEST_VAL = 10
+$TEST_VAL = $TEST_VAL * 5
+$TEST_VAL = $TEST_VAL / 2
+
+IF $TEST_VAL == 25
+    STRINGLN [+] LOGIC & MATH: Success (Value is exactly 25)
+ELSE
+    STRINGLN [-] LOGIC & MATH: Failed
+END_IF
+DELAY 500
+
+REM --- 7. LOOPS (WHILE) ---
+VAR $LOOP_IDX = 1
+WHILE $LOOP_IDX < 4
+    STRING [+] LOOP ITERATION: 
+    STRINGLN $LOOP_IDX
+    $LOOP_IDX = $LOOP_IDX + 1
+    DELAY 300
+END_WHILE
+DELAY 500
+
+REM --- 8. FUNCTIONS ---
+FUNCTION DIAGNOSTIC_FUNC
+    STRINGLN [+] FUNCTION CALL: Executed successfully!
+END_FUNCTION
+
+DIAGNOSTIC_FUNC
+DELAY 500
+
+REM --- 9. RANDOMIZATION ---
+STRING [+] RANDOMIZATION DEMO: 
+RANDOM_CHAR
+RANDOM_NUMBER
+RANDOM_UPPERCASE_LETTER
+ENTER
+DELAY 500
+
+REM --- 10. HARDWARE STATE ---
+SAVE_HOST_KEYBOARD_LOCK_STATE
+RESTORE_HOST_KEYBOARD_LOCK_STATE
+STRINGLN [+] LOCK STATES: Saved and Restored successfully.
+DELAY 500
+
+REM --- 11. CHAIN EXECUTION ---
+ENTER
+STRINGLN [*] HANDING OFF EXECUTION TO CHAINED SCRIPT...
+DELAY 1500
+CHAIN diagnostic_chained.dd
