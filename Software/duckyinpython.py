@@ -199,35 +199,25 @@ def _set_led_ref(led_obj):
 # ── IF/ELSE/END_IF Block Handler ─────────────────────────────────────
 
 class IF:
-    def __init__(self, condition, code_lines):
+    def __init__(self, condition, lines_iter):
         self.condition = condition
-        self.code_lines = list(code_lines)
-        self._idx = 0
+        self.lines_iter = lines_iter
         self.lastIfResult = None
-
-    def _pop_line(self):
-        """O(1) line retrieval using index instead of list.pop(0)."""
-        if self._idx >= len(self.code_lines):
-            return None
-        line = self.code_lines[self._idx]
-        self._idx += 1
-        return line
-
-    def _remaining_lines(self):
-        """Return remaining unprocessed lines as a new list."""
-        return self.code_lines[self._idx:]
 
     def _exitIf(self):
         _depth = 0
-        while self._idx < len(self.code_lines):
-            line = self._pop_line().strip()
+        while True:
+            line = _safe_next(self.lines_iter)
+            if line is None:
+                break
+            line = line.strip()
             if line.upper().startswith("END_IF"):
                 _depth -= 1
             elif line.upper().startswith("IF"):
                 _depth += 1
             if _depth < 0:
                 break
-        return self._remaining_lines()
+        return self.lines_iter
 
     async def runIf(self):
         if isinstance(self.condition, str):
@@ -238,8 +228,11 @@ class IF:
             raise ValueError("Invalid condition type")
 
         depth = 0
-        while self._idx < len(self.code_lines):
-            line = self._pop_line().strip()
+        while True:
+            line = _safe_next(self.lines_iter)
+            if line is None:
+                return (self.lines_iter, self.lastIfResult)
+            line = line.strip()
             if not line:
                 continue
 
@@ -247,7 +240,7 @@ class IF:
                 depth += 1
             elif line.startswith("END_IF"):
                 if depth == 0:
-                    return (self._remaining_lines(), -1)
+                    return (self.lines_iter, -1)
                 depth -= 1
 
             elif line.startswith("ELSE") and depth == 0:
@@ -255,26 +248,19 @@ class IF:
                     line = line[4:].strip()
                     if line.startswith("IF"):
                         nestedCondition = _getIfCondition(line)
-                        remaining = self._remaining_lines()
-                        remaining, self.lastIfResult = await IF(nestedCondition, remaining).runIf()
+                        self.lines_iter, self.lastIfResult = await IF(nestedCondition, self.lines_iter).runIf()
                         if self.lastIfResult == -1 or self.lastIfResult is True:
-                            return (remaining, True)
+                            return (self.lines_iter, True)
                     else:
-                        remaining = self._remaining_lines()
-                        return await IF(True, remaining).runIf()
+                        return await IF(True, self.lines_iter).runIf()
                 else:
-                    self.code_lines = self._remaining_lines()
-                    self._idx = 0
-                    self._exitIf()
+                    self.lines_iter = self._exitIf()
                     break
 
             # Process regular lines
             elif self.lastIfResult:
-                remaining = self._remaining_lines()
-                remaining = list(await parseLine(line, iter(remaining)))
-                self.code_lines = remaining
-                self._idx = 0
-        return (self._remaining_lines(), self.lastIfResult)
+                self.lines_iter = await parseLine(line, self.lines_iter)
+        return (self.lines_iter, self.lastIfResult)
 
 
 def _getIfCondition(line):
@@ -290,7 +276,10 @@ def _getCodeBlock(linesIter):
     """Returns the code block starting at the given line."""
     code = []
     depth = 1
-    for line in linesIter:
+    while True:
+        line = _safe_next(linesIter)
+        if line is None:
+            break
         line = line.strip()
         if line.upper().startswith("END_"):
             depth -= 1
@@ -539,7 +528,8 @@ def _safe_next(iterator):
 async def parseLine(line, script_lines):
     global defaultDelay, variables, functions, defines, _jitter_min_ms, _jitter_max_ms
     line = line.strip()
-    line = line.replace("$_RANDOM_INT", str(random.randint(int(variables.get("$_RANDOM_MIN", 0)), int(variables.get("$_RANDOM_MAX", 65535)))))
+    if "$_RANDOM_INT" in line:
+        line = line.replace("$_RANDOM_INT", str(random.randint(int(variables.get("$_RANDOM_MIN", 0)), int(variables.get("$_RANDOM_MAX", 65535)))))
     line = replaceDefines(line)
     if line.startswith("INJECT_MOD"):
         line = line[11:]
@@ -716,12 +706,12 @@ async def parseLine(line, script_lines):
         for _iter_count in range(_WHILE_MAX_ITERATIONS):
             if not evaluateExpression(condition):
                 break
-            # Iterate over loopCode by index — no copy per iteration
-            idx = 0
-            while idx < len(loopCode):
-                remaining = iter(loopCode[idx + 1:])
-                remaining = await parseLine(loopCode[idx], remaining)
-                idx += 1
+            loop_iter = iter(loopCode)
+            while True:
+                loop_line = _safe_next(loop_iter)
+                if loop_line is None:
+                    break
+                loop_iter = await parseLine(loop_line, loop_iter)
         else:
             print(f"[WARN] WHILE loop exceeded {_WHILE_MAX_ITERATIONS} iterations. Breaking.")
 
@@ -767,21 +757,12 @@ async def parseLine(line, script_lines):
         else:
             print(f"[WARN] WAIT_FOR_SCROLL_CHANGE timed out after {_SCROLL_WAIT_TIMEOUT_SEC}s.")
     elif line in functions:
-        updated_lines = []
-        inside_while_block = False
-        for func_line in functions[line]:
-            if func_line.startswith("WHILE"):
-                inside_while_block = True
-                updated_lines.append(func_line)
-            elif func_line.startswith("END_WHILE"):
-                inside_while_block = False
-                updated_lines.append(func_line)
-                await parseLine(updated_lines[0], iter(updated_lines))
-                updated_lines = []
-            elif inside_while_block:
-                updated_lines.append(func_line)
-            elif not (func_line.startswith("END_WHILE") or func_line.startswith("WHILE")):
-                await parseLine(func_line, iter(functions[line]))
+        func_iter = iter(functions[line])
+        while True:
+            func_line = _safe_next(func_iter)
+            if func_line is None:
+                break
+            func_iter = await parseLine(func_line, func_iter)
     elif line.startswith("CHAIN"):
         chain_files = line[6:].strip().split()
         for chain_file in chain_files:
@@ -833,7 +814,7 @@ async def parseLine(line, script_lines):
     else:
         await runScriptLine(line)
 
-    return iter(script_lines)
+    return script_lines
 
 
 # ── Hardware Status ──────────────────────────────────────────────────
@@ -864,14 +845,10 @@ async def runScript(file_path):
         try:
             with open(file_path, "r", encoding='utf-8') as f:
                 # Lazy line-by-line reading: file object is its own iterator
-                # This avoids loading the entire script into RAM at once
+                # This avoids loading the entire script into RAM at once, preventing OOM
                 previous_line = ""
-                lines_buffer = []
+                script_lines = f
 
-                for raw_line in f:
-                    lines_buffer.append(raw_line)
-
-                script_lines = iter(lines_buffer)
                 while True:
                     line = _safe_next(script_lines)
                     if line is None:
