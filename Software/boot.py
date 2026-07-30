@@ -55,9 +55,9 @@ def _configure_usb_profile():
         # May fail if filesystem is already in the desired state
         pass
 
-    # 4. Configure HID interface — only keyboard + consumer control
+    # 4. Configure HID interface — keyboard + consumer control + mouse
     usb_hid.enable(
-        (usb_hid.Device.KEYBOARD, usb_hid.Device.CONSUMER_CONTROL),
+        (usb_hid.Device.KEYBOARD, usb_hid.Device.CONSUMER_CONTROL, usb_hid.Device.MOUSE),
         boot_device=1
     )
     try:

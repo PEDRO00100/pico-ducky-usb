@@ -15,9 +15,11 @@ import random
 import board
 import asyncio
 import usb_hid
+import microcontroller
 from adafruit_hid.keyboard import Keyboard
 from adafruit_hid.consumer_control import ConsumerControl
 from adafruit_hid.consumer_control_code import ConsumerControlCode
+from adafruit_hid.mouse import Mouse
 from pins import (
     progStatusPin,
     payload1Pin,
@@ -50,8 +52,23 @@ __all__ = [
 kbd = Keyboard(usb_hid.devices)
 consumerControl = ConsumerControl(usb_hid.devices)
 layout = KeyboardLayout(kbd)
+try:
+    mouse = Mouse(usb_hid.devices)
+except Exception:
+    mouse = None  # Mouse HID not enabled in boot.py
 
 defaultDelay = 0
+
+# ── Jitter State (Anti-Behavioral Detection) ─────────────────────────
+_jitter_min_ms = 0
+_jitter_max_ms = 0
+
+# ── Mouse Button Mapping ─────────────────────────────────────────────
+_MOUSE_BUTTONS = {
+    'LEFT': Mouse.LEFT_BUTTON,
+    'RIGHT': Mouse.RIGHT_BUTTON,
+    'MIDDLE': Mouse.MIDDLE_BUTTON,
+} if mouse else {}
 
 # ── LED State Helpers ────────────────────────────────────────────────
 
@@ -464,7 +481,7 @@ def convertLine(line):
     return commands
 
 
-def runScriptLine(line):
+async def runScriptLine(line):
     keys = convertLine(line)
     for k in keys:
         if k > 1000:
@@ -476,10 +493,19 @@ def runScriptLine(line):
             consumerControl.release()
         else:
             kbd.release(k)
+    # Jitter: random delay after keystroke combo
+    if _jitter_max_ms > 0:
+        await asyncio.sleep(random.randint(_jitter_min_ms, _jitter_max_ms) / 1000.0)
 
 
-def sendString(line):
-    layout.write(line)
+async def sendString(line):
+    if _jitter_max_ms > 0:
+        # Character-by-character with jitter for anti-detection
+        for char in line:
+            layout.write(char)
+            await asyncio.sleep(random.randint(_jitter_min_ms, _jitter_max_ms) / 1000.0)
+    else:
+        layout.write(line)
 
 
 def replaceVariables(line):
@@ -511,7 +537,7 @@ def _safe_next(iterator):
 # ── DuckyScript Line Parser ──────────────────────────────────────────
 
 async def parseLine(line, script_lines):
-    global defaultDelay, variables, functions, defines
+    global defaultDelay, variables, functions, defines, _jitter_min_ms, _jitter_max_ms
     line = line.strip()
     line = line.replace("$_RANDOM_INT", str(random.randint(int(variables.get("$_RANDOM_MIN", 0)), int(variables.get("$_RANDOM_MAX", 65535)))))
     line = replaceDefines(line)
@@ -526,6 +552,20 @@ async def parseLine(line, script_lines):
             line = line.strip()
     elif line.startswith("REM"):
         pass
+    elif line.startswith("JITTER"):
+        jitter_args = line[7:].strip()
+        if jitter_args.upper() == "OFF":
+            _jitter_min_ms = 0
+            _jitter_max_ms = 0
+            print("[JITTER] Disabled.")
+        else:
+            parts = jitter_args.split()
+            if len(parts) == 2:
+                _jitter_min_ms = int(parts[0])
+                _jitter_max_ms = int(parts[1])
+                print(f"[JITTER] Enabled: {_jitter_min_ms}-{_jitter_max_ms}ms")
+            else:
+                print(f"[WARN] Invalid JITTER syntax: {line}")
     elif line.startswith("HOLD"):
         # HOLD command to press and hold a key
         key = line[5:].strip().upper()
@@ -545,6 +585,17 @@ async def parseLine(line, script_lines):
     elif line.startswith("DELAY"):
         line = replaceVariables(line)
         await asyncio.sleep(float(line[6:]) / 1000)
+    elif line.startswith("OVERCLOCK"):
+        oc_arg = line[10:].strip().upper()
+        if oc_arg == "DEFAULT" or oc_arg == "125":
+            _target = 125_000_000
+        else:
+            _target = int(oc_arg) * 1_000_000
+        try:
+            microcontroller.cpu.frequency = _target
+            print(f"[OVERCLOCK] CPU set to {_target // 1_000_000}MHz")
+        except Exception as e:
+            print(f"[OVERCLOCK ERROR] {e}")
     elif line == "STRINGLN":               #< stringLN block
         line = _safe_next(script_lines)
         if line is None:
@@ -554,7 +605,7 @@ async def parseLine(line, script_lines):
             # Check END marker BEFORE variable/define replacement
             while not line.startswith("END_STRINGLN"):
                 line = replaceVariables(line)
-                sendString(line)
+                await sendString(line)
                 kbd.press(Keycode.ENTER)
                 kbd.release(Keycode.ENTER)
                 line = _safe_next(script_lines)
@@ -563,7 +614,7 @@ async def parseLine(line, script_lines):
                     break
                 line = line.strip()
     elif line.startswith("STRINGLN"):
-        sendString(replaceVariables(line[9:]))
+        await sendString(replaceVariables(line[9:]))
         kbd.press(Keycode.ENTER)
         kbd.release(Keycode.ENTER)
     elif line == "STRING":                 #< string block
@@ -576,14 +627,14 @@ async def parseLine(line, script_lines):
             while not line.startswith("END_STRING"):
                 line = replaceVariables(line)
                 line = replaceDefines(line)
-                sendString(line)
+                await sendString(line)
                 line = _safe_next(script_lines)
                 if line is None:
                     print("[WARN] STRING block missing END_STRING.")
                     break
                 line = line.strip()
     elif line.startswith("STRING"):
-        sendString(replaceVariables(line[7:]))
+        await sendString(replaceVariables(line[7:]))
     elif line.startswith("ALTSTRING"):
         keys = replaceVariables(line[10:])
 
@@ -679,26 +730,26 @@ async def parseLine(line, script_lines):
     elif line.upper().startswith("END_IF"):
         pass
     elif line == "RANDOM_LOWERCASE_LETTER":
-        sendString(random.choice(LETTERS))
+        await sendString(random.choice(LETTERS))
     elif line == "RANDOM_UPPERCASE_LETTER":
-        sendString(random.choice(LETTERS_UPPER))
+        await sendString(random.choice(LETTERS_UPPER))
     elif line == "RANDOM_LETTER":
-        sendString(random.choice(LETTERS + LETTERS_UPPER))
+        await sendString(random.choice(LETTERS + LETTERS_UPPER))
     elif line == "RANDOM_NUMBER":
-        sendString(random.choice(NUMBERS))
+        await sendString(random.choice(NUMBERS))
     elif line == "RANDOM_SPECIAL":
-        sendString(random.choice(SPECIAL_CHARS))
+        await sendString(random.choice(SPECIAL_CHARS))
     elif line == "RANDOM_CHAR":
-        sendString(random.choice(ALL_CHARS))
+        await sendString(random.choice(ALL_CHARS))
     elif line == "VID_RANDOM" or line == "PID_RANDOM":
         for _ in range(4):
-            sendString(random.choice(HEX_CHARS))
+            await sendString(random.choice(HEX_CHARS))
     elif line == "MAN_RANDOM" or line == "PROD_RANDOM":
         for _ in range(12):
-            sendString(random.choice(ALPHANUM_CHARS))
+            await sendString(random.choice(ALPHANUM_CHARS))
     elif line == "SERIAL_RANDOM":
         for _ in range(12):
-            sendString(random.choice(ALL_CHARS))
+            await sendString(random.choice(ALL_CHARS))
     elif line == "RESET":
         kbd.release_all()
     elif line == "SAVE_HOST_KEYBOARD_LOCK_STATE":
@@ -731,8 +782,56 @@ async def parseLine(line, script_lines):
                 updated_lines.append(func_line)
             elif not (func_line.startswith("END_WHILE") or func_line.startswith("WHILE")):
                 await parseLine(func_line, iter(functions[line]))
+    elif line.startswith("CHAIN"):
+        chain_files = line[6:].strip().split()
+        for chain_file in chain_files:
+            chain_path = f"/sd/{chain_file}" if not chain_file.startswith("/") else chain_file
+            if file_exists(chain_path):
+                print(f"[CHAIN] Executing: {chain_path}")
+                await runScript(chain_path)
+                print(f"[CHAIN] Completed: {chain_path}")
+            else:
+                print(f"[CHAIN ERROR] File not found: {chain_path}")
+    elif line.startswith("MOUSE_MOVE"):
+        if mouse:
+            parts = line[11:].strip().split()
+            mx = int(parts[0]) if len(parts) > 0 else 0
+            my = int(parts[1]) if len(parts) > 1 else 0
+            mouse.move(mx, my)
+        else:
+            print("[WARN] MOUSE_MOVE: Mouse HID not enabled.")
+    elif line.startswith("MOUSE_CLICK"):
+        if mouse:
+            btn_name = line[12:].strip().upper()
+            btn = _MOUSE_BUTTONS.get(btn_name, Mouse.LEFT_BUTTON)
+            mouse.click(btn)
+        else:
+            print("[WARN] MOUSE_CLICK: Mouse HID not enabled.")
+    elif line.startswith("MOUSE_HOLD"):
+        if mouse:
+            btn_name = line[11:].strip().upper()
+            btn = _MOUSE_BUTTONS.get(btn_name, Mouse.LEFT_BUTTON)
+            mouse.press(btn)
+        else:
+            print("[WARN] MOUSE_HOLD: Mouse HID not enabled.")
+    elif line.startswith("MOUSE_RELEASE"):
+        if mouse:
+            btn_name = line[14:].strip().upper()
+            if btn_name:
+                btn = _MOUSE_BUTTONS.get(btn_name, Mouse.LEFT_BUTTON)
+                mouse.release(btn)
+            else:
+                mouse.release_all()
+        else:
+            print("[WARN] MOUSE_RELEASE: Mouse HID not enabled.")
+    elif line.startswith("MOUSE_SCROLL"):
+        if mouse:
+            wheel = int(line[13:].strip())
+            mouse.move(0, 0, wheel)
+        else:
+            print("[WARN] MOUSE_SCROLL: Mouse HID not enabled.")
     else:
-        runScriptLine(line)
+        await runScriptLine(line)
 
     return iter(script_lines)
 

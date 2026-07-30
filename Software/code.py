@@ -6,6 +6,7 @@
 import gc
 import asyncio
 import digitalio
+import microcontroller
 import supervisor
 import os
 import pwmio
@@ -33,6 +34,19 @@ def log(level, msg):
 log("INFO", "Initializing Hardware Execution Engine")
 time.sleep(0.15)
 supervisor.runtime.autoreload = False
+
+# ── Conditional Overclocking (before peripheral init) ────────────────
+# 200MHz is officially certified safe for RP2040 silicon.
+# Must be set BEFORE busio.SPI() to prevent clock desync on SD card bus.
+_TARGET_FREQ_HZ = 200_000_000
+try:
+    if microcontroller.cpu.frequency != _TARGET_FREQ_HZ:
+        microcontroller.cpu.frequency = _TARGET_FREQ_HZ
+        log("SUCCESS", f"CPU overclocked to {_TARGET_FREQ_HZ // 1_000_000}MHz")
+    else:
+        log("INFO", f"CPU already at {_TARGET_FREQ_HZ // 1_000_000}MHz")
+except Exception as e:
+    log("WARN", f"Overclock failed ({e}). Running at default frequency.")
 
 # MicroSD Hardware Initialization
 sd_mounted = False
