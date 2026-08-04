@@ -5,7 +5,6 @@
 
 import gc
 import os
-import re
 import time
 import random
 import board
@@ -163,12 +162,6 @@ ALL_CHARS = LETTERS + LETTERS_UPPER + NUMBERS + SPECIAL_CHARS
 HEX_CHARS = NUMBERS + "ABCDEF"
 ALPHANUM_CHARS = LETTERS + LETTERS_UPPER + NUMBERS
 
-# Pre-compiled regex (avoids re-parsing patterns per call)
-_RE_VAR_DECL = re.compile(r"VAR\s+\$(\w+)\s*=\s*(.+)")
-_RE_VAR_UPDATE = re.compile(r"\$(\w+)\s*=\s*(.+)")
-_RE_TRUE = re.compile(r'[Tt][Rr][Uu][Ee]')
-_RE_FALSE = re.compile(r'[Ff][Aa][Ll][Ss][Ee]')
-
 # Safety limits
 _WHILE_MAX_ITERATIONS = 100_000
 _SCROLL_WAIT_TIMEOUT_SEC = 120
@@ -310,8 +303,9 @@ def _getCodeBlock(lines_iter):
 def evaluateExpression(expression):
     """Safely evaluate a DuckyScript math/logic expression."""
     expression = replaceVariables(expression)
-    expression = _RE_TRUE.sub('True', expression)
-    expression = _RE_FALSE.sub('False', expression)
+    # Case-insensitive True/False normalization (no regex needed)
+    for src, dst in (('TRUE', 'True'), ('true', 'True'), ('FALSE', 'False'), ('false', 'False')):
+        expression = expression.replace(src, dst)
     expression = expression.replace("&&", " and ").replace("||", " or ")
     tokens = _tokenize(expression)
     pos = [0]
@@ -610,43 +604,45 @@ async def parseLine(line, script_lines):
         except Exception as e:
             _log(f"[OVERCLOCK ERROR] {e}")
 
-    # STRINGLN multi-line block (exact match, no trailing content)
-    elif line == "STRINGLN":
+    # STRINGLN multi-line block: matches "STRINGLN" or "STRINGLN_BLOCK" exactly
+    elif line in ("STRINGLN", "STRINGLN_BLOCK"):
+        end_tag = "END_STRINGLN_BLOCK" if line == "STRINGLN_BLOCK" else "END_STRINGLN"
         line = _safe_next(script_lines)
         if line is None:
-            _log("[WARN] STRINGLN block missing content.")
+            _log(f"[WARN] {end_tag} block missing content.")
         else:
             line = line.rstrip("\r\n")
-            while not line.lstrip(" \t").startswith("END_STRINGLN"):
+            while not line.lstrip(" \t").startswith(end_tag):
                 await sendString(replaceVariables(line))
                 kbd.press(Keycode.ENTER)
                 kbd.release(Keycode.ENTER)
                 line = _safe_next(script_lines)
                 if line is None:
-                    _log("[WARN] STRINGLN block missing END_STRINGLN.")
+                    _log(f"[WARN] Missing {end_tag}.")
                     break
                 line = line.rstrip("\r\n")
 
     # STRINGLN single-line
-    elif line.startswith("STRINGLN"):
+    elif line.startswith("STRINGLN "):
         await sendString(replaceVariables(line[9:]))
         kbd.press(Keycode.ENTER)
         kbd.release(Keycode.ENTER)
 
-    # STRING multi-line block (exact match, no trailing content)
-    elif line == "STRING":
+    # STRING multi-line block: matches "STRING" or "STRING_BLOCK" exactly
+    elif line in ("STRING", "STRING_BLOCK"):
+        end_tag = "END_STRING_BLOCK" if line == "STRING_BLOCK" else "END_STRING"
         line = _safe_next(script_lines)
         if line is None:
-            _log("[WARN] STRING block missing content.")
+            _log(f"[WARN] {end_tag} block missing content.")
         else:
             line = line.rstrip("\r\n")
-            while not line.lstrip(" \t").startswith("END_STRING"):
+            while not line.lstrip(" \t").startswith(end_tag):
                 line = replaceVariables(line)
                 line = replaceDefines(line)
                 await sendString(line)
                 line = _safe_next(script_lines)
                 if line is None:
-                    _log("[WARN] STRING block missing END_STRING.")
+                    _log(f"[WARN] Missing {end_tag}.")
                     break
                 line = line.rstrip("\r\n")
 
@@ -692,16 +688,18 @@ async def parseLine(line, script_lines):
                 _led_ref.duty_cycle = 0 if _led_ref.duty_cycle > 0 else 65535
 
     elif line.startswith("VAR"):
-        match = _RE_VAR_DECL.match(line)
-        if match:
-            variables[f"${match.group(1)}"] = evaluateExpression(match.group(2))
+        parts = line[3:].lstrip(" \t").split("=", 1)
+        if len(parts) == 2 and parts[0].strip().startswith("$"):
+            var_name = parts[0].strip()
+            variables[var_name] = evaluateExpression(parts[1].strip())
         else:
             _log(f"[ERROR] Invalid VAR: {line}")
 
     elif line.startswith("$"):
-        match = _RE_VAR_UPDATE.match(line)
-        if match:
-            variables[f"${match.group(1)}"] = evaluateExpression(match.group(2))
+        parts = line.split("=", 1)
+        if len(parts) == 2:
+            var_name = parts[0].strip()
+            variables[var_name] = evaluateExpression(parts[1].strip())
         else:
             _log(f"[ERROR] Invalid variable update: {line}")
 

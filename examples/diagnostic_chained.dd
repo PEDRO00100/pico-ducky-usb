@@ -188,11 +188,8 @@ DELAY 300
 REM -- 31. EDGE CASE: EMPTY & BOUNDARY CONDITIONS ------------------
 STRINGLN --- TEST 31: Edge Cases ---
 
-REM Empty string
-STRING [+] Empty STRING test: [
-STRING 
-STRING ]
-ENTER
+REM Empty string (no trailing-space trick - editors strip it)
+STRINGLN [+] Empty STRING test: [] (empty - nothing between brackets)
 
 REM Single character
 STRING [+] Single char STRING: [
