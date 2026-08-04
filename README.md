@@ -15,7 +15,7 @@ High-Performance RP2040 DuckyScript Interpreter and Hardware HID Injection Platf
 ## Table of Contents / Tabla de Contenidos
 
 - [English Documentation](#english-documentation)
-- [Documentacion en Español](#documentación-en-español)
+- [Documentación en Español](#documentacion-en-español)
 
 ---
 
@@ -371,7 +371,7 @@ To build a working injector using a standard Raspberry Pi Pico:
 
 ---
 
-## Documentacion en Español
+## Documentación en Español
 
 ### Que es USB Pico Ducky?
 
