@@ -1,15 +1,320 @@
 REM ==================================================================
-REM CHAIN TARGET SCRIPT (Pico Ducky)
+REM    USB PICO DUCKY - CHAINED DIAGNOSTIC (Phase 2)
+REM    Executed automatically via CHAIN from payload.dd
+REM    Purpose: Advanced features, edge cases & final report.
 REM ==================================================================
 
-DELAY 1000
-STRINGLN [+] CHAIN EXECUTION: Payload transferred successfully!
+DELAY 500
+ENTER
+STRINGLN ============================================================
+STRINGLN    PHASE 2 - CHAINED SCRIPT EXECUTION
+STRINGLN    This file was loaded via CHAIN diagnostic_chained.dd
+STRINGLN ============================================================
+ENTER
+DELAY 300
+
+REM -- 24. CHAIN CONFIRMATION ----------------------------------------
+STRINGLN --- TEST 24: CHAIN Execution ---
+STRINGLN [+] CHAIN transfers execution to another .dd file on the SD.
+STRINGLN [+] The calling script halts; this script takes full control.
+STRINGLN [+] Variables, functions, and defines from Phase 1 persist!
+DELAY 200
+
+REM Prove that variables survived the chain
+STRINGLN [+] Verifying Phase 1 variable persistence:
+IF $STRESS == 4950
+    STRINGLN [+] $STRESS = $STRESS - Variables survived CHAIN! Correct!
+ELSE
+    STRINGLN [-] $STRESS value unexpected. Variable isolation detected.
+END_IF
+DELAY 300
+
+REM Prove that functions survived the chain
+STRINGLN [+] Calling PRINT_SEPARATOR from Phase 1:
+PRINT_SEPARATOR
+DELAY 300
+
+REM -- 25. ADVANCED MATH & EXPRESSIONS ------------------------------
+STRINGLN --- TEST 25: Advanced Math Expressions ---
+
+VAR $EXPR1 = (10 + 5) * 2
+VAR $EXPR2 = 100 / (4 + 1)
+VAR $EXPR3 = 2 ** 8
+VAR $EXPR4 = (3 + 4) * (5 - 2)
+VAR $EXPR5 = 17 % 5
+
+STRINGLN [+] (10+5)*2     = $EXPR1 (expected: 30)
+STRINGLN [+] 100/(4+1)    = $EXPR2 (expected: 20.0)
+STRINGLN [+] 2^8 (power)  = $EXPR3 (expected: 256)
+STRINGLN [+] (3+4)*(5-2)  = $EXPR4 (expected: 21)
+STRINGLN [+] 17 % 5 (mod) = $EXPR5 (expected: 2)
+DELAY 300
+
+REM -- 26. COMPARISON OPERATORS --------------------------------------
+STRINGLN --- TEST 26: All Comparison Operators ---
+
+VAR $V = 50
+
+STRING [+] $V == 50: 
+IF $V == 50
+    STRINGLN TRUE
+ELSE
+    STRINGLN FALSE
+END_IF
+
+STRING [+] $V != 99: 
+IF $V != 99
+    STRINGLN TRUE
+ELSE
+    STRINGLN FALSE
+END_IF
+
+STRING [+] $V > 25:  
+IF $V > 25
+    STRINGLN TRUE
+ELSE
+    STRINGLN FALSE
+END_IF
+
+STRING [+] $V < 75:  
+IF $V < 75
+    STRINGLN TRUE
+ELSE
+    STRINGLN FALSE
+END_IF
+
+STRING [+] $V >= 50: 
+IF $V >= 50
+    STRINGLN TRUE
+ELSE
+    STRINGLN FALSE
+END_IF
+
+STRING [+] $V <= 50: 
+IF $V <= 50
+    STRINGLN TRUE
+ELSE
+    STRINGLN FALSE
+END_IF
+DELAY 300
+
+REM -- 27. FUNCTIONS WITH PARAMETERS VIA VARIABLES -------------------
+STRINGLN --- TEST 27: Functions with Variable Parameters ---
+
+FUNCTION DRAW_BOX
+    VAR $W = 0
+    STRING     +
+    WHILE $W < $BOX_WIDTH
+        STRING -
+        $W = $W + 1
+    END_WHILE
+    STRINGLN +
+    VAR $H = 0
+    WHILE $H < $BOX_HEIGHT
+        VAR $FILL = 0
+        STRING     |
+        WHILE $FILL < $BOX_WIDTH
+            STRING  
+            $FILL = $FILL + 1
+        END_WHILE
+        STRINGLN |
+        $H = $H + 1
+    END_WHILE
+    VAR $W2 = 0
+    STRING     +
+    WHILE $W2 < $BOX_WIDTH
+        STRING -
+        $W2 = $W2 + 1
+    END_WHILE
+    STRINGLN +
+END_FUNCTION
+
+VAR $BOX_WIDTH = 20
+VAR $BOX_HEIGHT = 3
+STRINGLN [+] Drawing a text box (20x3) using a function:
+DRAW_BOX
+DELAY 300
+
+REM -- 28. MOUSE PRECISION TEST -------------------------------------
+STRINGLN --- TEST 28: Mouse Precision Patterns ---
+STRINGLN [+] Drawing a triangle with the cursor...
+DELAY 500
+MOUSE_MOVE 80 0
+DELAY 150
+MOUSE_MOVE -40 60
+DELAY 150
+MOUSE_MOVE -40 -60
+DELAY 300
+
+STRINGLN [+] Diagonal zigzag movement...
+MOUSE_MOVE 30 30
+DELAY 100
+MOUSE_MOVE 30 -30
+DELAY 100
+MOUSE_MOVE 30 30
+DELAY 100
+MOUSE_MOVE 30 -30
+DELAY 100
+MOUSE_MOVE -120 0
+DELAY 300
+
+REM -- 29. RAPID-FIRE KEY COMBO TEST --------------------------------
+STRINGLN --- TEST 29: Keyboard Combo Speed Test ---
+STRINGLN [+] Firing rapid CTRL+A, RIGHT sequences (select-deselect):
+DELAY 300
+
+VAR $COMBO = 0
+WHILE $COMBO < 5
+    CTRL a
+    DELAY 100
+    RIGHT
+    DELAY 100
+    $COMBO = $COMBO + 1
+END_WHILE
+STRINGLN [+] 5 rapid combos executed successfully.
+DELAY 300
+
+REM -- 30. SPECIAL CHARACTERS VIA ALTSTRING -------------------------
+STRINGLN --- TEST 30: Full ALTSTRING Character Set ---
+STRING [+] Symbols:  
+ALTSTRING !@#$%^&*()_+-=[]{}|;':",./<>?`~
+ENTER
+STRING [+] Accented: 
+ALTSTRING abcdefghij
+ENTER
+STRINGLN [+] ALTSTRING uses ALT+numpad codes - works on ANY keyboard layout.
+DELAY 300
+
+REM -- 31. EDGE CASE: EMPTY & BOUNDARY CONDITIONS ------------------
+STRINGLN --- TEST 31: Edge Cases ---
+
+REM Empty string
+STRING [+] Empty STRING test: [
+STRING 
+STRING ]
+ENTER
+
+REM Single character
+STRING [+] Single char STRING: [
+STRING X
+STRING ]
+ENTER
+
+REM Variable with zero
+VAR $ZERO = 0
+STRINGLN [+] Variable with zero: $ZERO (should show 0)
+
+REM Large number
+VAR $BIG = 2 ** 16
+STRINGLN [+] Large number (2^16): $BIG (should show 65536)
+
+REM Negative result
+VAR $NEG = 10 - 25
+STRINGLN [+] Negative result (10-25): $NEG (should show -15)
+DELAY 300
+
+REM -- 32. LOOP PERFORMANCE BENCHMARK -------------------------------
+STRINGLN --- TEST 32: Loop Performance Benchmark ---
+STRING [+] Computing sum of 0..999 in a tight loop... 
+VAR $SUM = 0
+VAR $N = 0
+WHILE $N < 1000
+    $SUM = $SUM + $N
+    $N = $N + 1
+END_WHILE
+STRINGLN Done! Sum = $SUM (expected: 499500)
+DELAY 300
+
+REM -- 33. COMPLETE COMMAND REFERENCE --------------------------------
+STRINGLN --- APPENDIX: Complete Command Reference ---
+ENTER
+STRINGLN  TYPING & KEYBOARD HID:
+STRINGLN    STRING <text>              Type text
+STRINGLN    STRINGLN <text>            Type text + ENTER
+STRINGLN    STRING / END_STRING        Multi-line text block
+STRINGLN    STRINGLN / END_STRINGLN    Multi-line text block + ENTER
+STRINGLN    ALTSTRING <text>           Type via ALT+numpad codes
+STRINGLN    ENTER, SPACE, TAB          Individual keys
+STRINGLN    GUI, SHIFT, CTRL, ALT      Modifier keys
+STRINGLN    UP, DOWN, LEFT, RIGHT      Arrow keys
+STRINGLN    F1 - F24                   Function keys
+STRINGLN    ESC, DELETE, BACKSPACE     Special keys
+STRINGLN    HOME, END, PAGEUP, DOWN    Navigation keys
+STRINGLN    HOLD <key>                 Press and hold
+STRINGLN    RELEASE <key>              Release held key
+STRINGLN    RESET                      Release all keys
+ENTER
+STRINGLN  MOUSE HID:
+STRINGLN    MOUSE_MOVE <x> <y>         Move cursor
+STRINGLN    MOUSE_CLICK <btn>          Click (LEFT/RIGHT/MIDDLE)
+STRINGLN    MOUSE_HOLD <btn>           Hold button
+STRINGLN    MOUSE_RELEASE <btn>        Release button
+STRINGLN    MOUSE_SCROLL <amt>         Scroll wheel
+ENTER
+STRINGLN  TIMING & EVASION:
+STRINGLN    DELAY <ms>                 Pause execution
+STRINGLN    DEFAULT_DELAY <ms>         Global inter-command delay
+STRINGLN    JITTER <min> <max>         Random per-keystroke delay
+STRINGLN    JITTER OFF                 Disable jitter
+ENTER
+STRINGLN  LOGIC & FLOW:
+STRINGLN    VAR $NAME = <expr>         Declare variable
+STRINGLN    $NAME = <expr>             Update variable
+STRINGLN    IF / ELSE IF / ELSE        Conditionals
+STRINGLN    WHILE / END_WHILE          Loops
+STRINGLN    FUNCTION / END_FUNCTION    Reusable blocks
+STRINGLN    DEFINE <name> <value>      Text macros
+STRINGLN    REPEAT <n>                 Repeat last command
+STRINGLN    CHAIN <file.dd>            Execute another script
+STRINGLN    STOP_PAYLOAD               Halt execution
+STRINGLN    RESTART_PAYLOAD            Restart from beginning
+ENTER
+STRINGLN  RANDOMIZATION:
+STRINGLN    RANDOM_CHAR                Any character
+STRINGLN    RANDOM_NUMBER              Digit 0-9
+STRINGLN    RANDOM_LETTER              a-z or A-Z
+STRINGLN    RANDOM_LOWERCASE_LETTER    a-z
+STRINGLN    RANDOM_UPPERCASE_LETTER    A-Z
+STRINGLN    RANDOM_SPECIAL             Symbol
+STRINGLN    $_RANDOM_INT               Random integer (range)
+STRINGLN    VID_RANDOM / PID_RANDOM    4-char hex
+STRINGLN    MAN_RANDOM / PROD_RANDOM   12-char alphanum
+STRINGLN    SERIAL_RANDOM              12-char any
+ENTER
+STRINGLN  HARDWARE & SYSTEM:
+STRINGLN    OVERCLOCK <mhz>            Set CPU frequency
+STRINGLN    OVERCLOCK DEFAULT          Reset to 125MHz
+STRINGLN    LED / LED_OFF              Toggle / Off
+STRINGLN    LED_G / LED_R              Green / Red
+STRINGLN    PRINT <text>               Debug to serial
+STRINGLN    REM <comment>              Comment line
+STRINGLN    REM_BLOCK / END_REM        Multi-line comment
+STRINGLN    INJECT_MOD <cmd>           Modifier injection
+ENTER
+STRINGLN  MEDIA KEYS:
+STRINGLN    MK_VOLUP / MK_VOLDOWN      Volume control
+STRINGLN    MK_MUTE                    Mute toggle
+STRINGLN    MK_PP / MK_STOP            Play-Pause / Stop
+STRINGLN    MK_NEXT / MK_PREV          Track navigation
+ENTER
 DELAY 500
 
-STRINGLN ==========================================
-STRINGLN DIAGNOSTIC COMPLETE. ALL SYSTEMS NOMINAL.
-STRINGLN ==========================================
+REM -- FINAL REPORT -------------------------------------------------
+ENTER
+STRINGLN ============================================================
+STRINGLN    DIAGNOSTIC COMPLETE - ALL SYSTEMS NOMINAL
+STRINGLN    32 tests executed across 2 chained scripts.
+STRINGLN    0 system changes. 0 files created. 100% visual.
+STRINGLN ============================================================
+STRINGLN    Hardware:  RP2040 (Cortex-M0+ Dual Core)
+STRINGLN    Firmware:  CircuitPython 10.x
+STRINGLN    Engine:    USB Pico Ducky v2.1.0
+STRINGLN ============================================================
 
-REM Return to safe hardware states
+REM -- CLEANUP: Restore safe hardware state --------------------------
 OVERCLOCK DEFAULT
+DEFAULT_DELAY 0
+JITTER OFF
+RESET
 LED_OFF
+PRINT [DIAGNOSTIC] All tests complete. System nominal.

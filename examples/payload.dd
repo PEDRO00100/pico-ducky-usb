@@ -1,19 +1,26 @@
 REM ==================================================================
-REM PICO DUCKY - MASTER DIAGNOSTIC PAYLOAD
-REM Target: Windows OS
-REM Purpose: Safely demonstrates ALL supported features with moderate delays.
+REM    USB PICO DUCKY - EXHAUSTIVE DIAGNOSTIC PAYLOAD
+REM    Target: Windows OS (Notepad environment)
+REM    Purpose: Demonstrates EVERY supported command and feature.
+REM    Safety: 100% INOFFENSIVE - All output is visual inside Notepad.
+REM             No files created, no settings changed, no downloads.
 REM ==================================================================
 
-PRINT [SYSTEM] Starting diagnostic payload...
+REM_BLOCK
+    This multi-line comment block (REM_BLOCK / END_REM) is completely
+    ignored by the parser. Use it for documentation or temporarily
+    disabling large sections of a payload during development.
+END_REM
+
+REM -- 0. SYSTEM INITIALIZATION --------------------------------------
+PRINT [DIAGNOSTIC] Starting exhaustive system showcase...
 LED_G
-
-REM --- 1. OVERCLOCKING ---
 OVERCLOCK 200
-DELAY 1000
 
-REM --- 2. ENVIRONMENT SETUP (Open Notepad) ---
+REM -- 1. ENVIRONMENT SETUP (Open Notepad - safe sandbox) ------------
+DELAY 3000
 GUI r
-DELAY 800
+DELAY 1500
 STRING notepad
 DELAY 300
 ENTER
@@ -21,89 +28,437 @@ DELAY 1500
 GUI UP
 DELAY 800
 
-REM --- 3. BASIC INJECTION & JITTER ---
-STRINGLN ==========================================
-STRINGLN PICO DUCKY - FULL SYSTEM DIAGNOSTIC
-STRINGLN ==========================================
-DELAY 500
-
-JITTER 30 100
-STRINGLN [+] JITTER ENABLED: Typing this sentence with human-like delays.
-JITTER OFF
-DELAY 500
-
-REM --- 4. ALTSTRING (Bypasses Keyboard Layouts) ---
-STRING [+] ALTSTRING DEMO: 
-ALTSTRING ~!@#$%^&*()_+
+REM -- 2. HEADER - DEFAULT_DELAY & BASIC STRING/STRINGLN -------------
+DEFAULT_DELAY 50
+STRINGLN ============================================================
+STRINGLN    USB PICO DUCKY - FULL SYSTEM DIAGNOSTIC v2.1
+STRINGLN    All tests execute inside Notepad. No system changes.
+STRINGLN ============================================================
 ENTER
-DELAY 500
-
-REM --- 5. MOUSE HID EMULATION ---
-STRINGLN [+] MOUSE DEMO: Moving cursor in a square...
-DELAY 500
-MOUSE_MOVE 100 0
-DELAY 300
-MOUSE_MOVE 0 100
-DELAY 300
-MOUSE_MOVE -100 0
-DELAY 300
-MOUSE_MOVE 0 -100
 DELAY 300
 
-STRINGLN [+] MOUSE DEMO: Scrolling and clicking...
-MOUSE_SCROLL -5
+REM -- 3. STRING BLOCK (multi-line typing without ENTER) -------------
+STRINGLN --- TEST 1: STRING Block (multi-line without newlines) ---
+STRING
+This entire paragraph was typed using a STRING block.
+It types each line continuously without pressing ENTER,
+which is useful for filling text fields or code editors.
+END_STRING
+ENTER
+ENTER
 DELAY 300
-MOUSE_CLICK RIGHT
-DELAY 500
-ESC
-DELAY 500
 
-REM --- 6. VARIABLES, MATH, & LOGIC (IF/ELSE) ---
-VAR $TEST_VAL = 10
-$TEST_VAL = $TEST_VAL * 5
-$TEST_VAL = $TEST_VAL / 2
+REM -- 4. STRINGLN BLOCK (multi-line with auto-ENTER) ----------------
+STRINGLN --- TEST 2: STRINGLN Block (multi-line with auto-ENTER) ---
+STRINGLN
+Line 1: Each of these lines automatically presses ENTER.
+Line 2: Useful for terminal commands or multi-line input.
+Line 3: Block ends with END_STRINGLN marker.
+END_STRINGLN
+DELAY 300
 
-IF $TEST_VAL == 25
-    STRINGLN [+] LOGIC & MATH: Success (Value is exactly 25)
+REM -- 5. DEFINE (Text Macro Replacement) ----------------------------
+STRINGLN --- TEST 3: DEFINE (Text Macros) ---
+DEFINE #DEVICE_NAME USB Pico Ducky
+DEFINE #FW_VERSION 2.1.0
+DEFINE #AUTHOR Pedro Pacheco
+STRING [+] Device: #DEVICE_NAME | FW: #FW_VERSION | Author: #AUTHOR
+ENTER
+DELAY 300
+
+REM -- 6. VARIABLES & MATH ENGINE ------------------------------------
+STRINGLN --- TEST 4: Variables & Math Engine ---
+
+VAR $A = 100
+VAR $B = 7
+VAR $SUM = $A + $B
+VAR $DIFF = $A - $B
+VAR $PROD = $A * $B
+VAR $DIV = $A / $B
+VAR $MOD = $A % $B
+VAR $POW = 2 ** 10
+
+STRING [+] A=100, B=7 => SUM=$SUM | DIFF=$DIFF | PROD=$PROD
+ENTER
+STRING [+] DIV=$DIV | MOD=$MOD | 2^10=$POW
+ENTER
+DELAY 300
+
+REM -- 7. IF / ELSE IF / ELSE / END_IF (Conditional Logic) ----------
+STRINGLN --- TEST 5: Conditional Logic (IF / ELSE IF / ELSE) ---
+
+VAR $SCORE = 85
+
+IF $SCORE >= 90
+    STRINGLN [+] Grade: A (Excellent)
+ELSE IF $SCORE >= 80
+    STRINGLN [+] Grade: B (Good) - Score is $SCORE, branch ELSE IF hit
+ELSE IF $SCORE >= 70
+    STRINGLN [+] Grade: C (Average)
 ELSE
-    STRINGLN [-] LOGIC & MATH: Failed
+    STRINGLN [+] Grade: F (Fail)
 END_IF
-DELAY 500
 
-REM --- 7. LOOPS (WHILE) ---
-VAR $LOOP_IDX = 1
-WHILE $LOOP_IDX < 4
-    STRING [+] LOOP ITERATION: 
-    STRINGLN $LOOP_IDX
-    $LOOP_IDX = $LOOP_IDX + 1
-    DELAY 300
+REM Nested IF test
+VAR $X = 10
+VAR $Y = 20
+IF $X < $Y
+    IF $Y == 20
+        STRINGLN [+] Nested IF: X($X) < Y($Y) AND Y equals 20. Correct!
+    END_IF
+END_IF
+DELAY 300
+
+REM -- 8. BOOLEAN LOGIC (AND, OR, NOT) ------------------------------
+STRINGLN --- TEST 6: Boolean Logic (AND / OR / NOT) ---
+
+VAR $READY = TRUE
+VAR $ARMED = FALSE
+
+IF $READY == True && $ARMED == False
+    STRINGLN [+] AND test: READY=True AND ARMED=False. Correct!
+END_IF
+
+IF $READY == True || $ARMED == True
+    STRINGLN [+] OR test: At least one condition is True. Correct!
+END_IF
+DELAY 300
+
+REM -- 9. WHILE LOOPS ------------------------------------------------
+STRINGLN --- TEST 7: WHILE Loops ---
+
+VAR $I = 1
+STRING [+] Counting: 
+WHILE $I <= 10
+    STRING $I 
+    $I = $I + 1
 END_WHILE
-DELAY 500
+ENTER
 
-REM --- 8. FUNCTIONS ---
-FUNCTION DIAGNOSTIC_FUNC
-    STRINGLN [+] FUNCTION CALL: Executed successfully!
+REM Nested loop test (3x3 grid)
+VAR $ROW = 1
+STRINGLN [+] Nested Loop (3x3 grid):
+WHILE $ROW <= 3
+    VAR $COL = 1
+    STRING     Row $ROW: 
+    WHILE $COL <= 3
+        VAR $CELL = $ROW * $COL
+        STRING [$CELL] 
+        $COL = $COL + 1
+    END_WHILE
+    ENTER
+    $ROW = $ROW + 1
+END_WHILE
+DELAY 300
+
+REM -- 10. FUNCTIONS (Reusable Code Blocks) --------------------------
+STRINGLN --- TEST 8: Functions (Reusable Blocks) ---
+
+FUNCTION PRINT_SEPARATOR
+    STRINGLN ............................................
 END_FUNCTION
 
-DIAGNOSTIC_FUNC
-DELAY 500
+FUNCTION GREET_USER
+    STRINGLN [+] Hello from a reusable FUNCTION block!
+END_FUNCTION
 
-REM --- 9. RANDOMIZATION ---
-STRING [+] RANDOMIZATION DEMO: 
+FUNCTION MATH_DEMO
+    VAR $R = 42 * 2 + 16
+    STRINGLN [+] FUNCTION computed: 42*2+16 = $R
+END_FUNCTION
+
+PRINT_SEPARATOR
+GREET_USER
+MATH_DEMO
+PRINT_SEPARATOR
+DELAY 300
+
+REM -- 11. RANDOMIZATION ENGINE --------------------------------------
+STRINGLN --- TEST 9: Randomization Engine ---
+
+STRING [+] RANDOM_CHAR (any):          
 RANDOM_CHAR
+RANDOM_CHAR
+RANDOM_CHAR
+RANDOM_CHAR
+RANDOM_CHAR
+ENTER
+
+STRING [+] RANDOM_NUMBER:              
 RANDOM_NUMBER
+RANDOM_NUMBER
+RANDOM_NUMBER
+RANDOM_NUMBER
+RANDOM_NUMBER
+ENTER
+
+STRING [+] RANDOM_LOWERCASE_LETTER:    
+RANDOM_LOWERCASE_LETTER
+RANDOM_LOWERCASE_LETTER
+RANDOM_LOWERCASE_LETTER
+RANDOM_LOWERCASE_LETTER
+RANDOM_LOWERCASE_LETTER
+ENTER
+
+STRING [+] RANDOM_UPPERCASE_LETTER:    
+RANDOM_UPPERCASE_LETTER
+RANDOM_UPPERCASE_LETTER
+RANDOM_UPPERCASE_LETTER
+RANDOM_UPPERCASE_LETTER
 RANDOM_UPPERCASE_LETTER
 ENTER
-DELAY 500
 
-REM --- 10. HARDWARE STATE ---
-SAVE_HOST_KEYBOARD_LOCK_STATE
-RESTORE_HOST_KEYBOARD_LOCK_STATE
-STRINGLN [+] LOCK STATES: Saved and Restored successfully.
-DELAY 500
-
-REM --- 11. CHAIN EXECUTION ---
+STRING [+] RANDOM_LETTER (mixed):      
+RANDOM_LETTER
+RANDOM_LETTER
+RANDOM_LETTER
+RANDOM_LETTER
+RANDOM_LETTER
 ENTER
-STRINGLN [*] HANDING OFF EXECUTION TO CHAINED SCRIPT...
-DELAY 1500
+
+STRING [+] RANDOM_SPECIAL:             
+RANDOM_SPECIAL
+RANDOM_SPECIAL
+RANDOM_SPECIAL
+RANDOM_SPECIAL
+RANDOM_SPECIAL
+ENTER
+
+REM $_RANDOM_INT with custom range
+VAR $_RANDOM_MIN = 1000
+VAR $_RANDOM_MAX = 9999
+STRINGLN [+] $_RANDOM_INT (1000-9999): $_RANDOM_INT
+
+REM Identifier generators
+STRING [+] VID_RANDOM:    
+VID_RANDOM
+ENTER
+STRING [+] PID_RANDOM:    
+PID_RANDOM
+ENTER
+STRING [+] MAN_RANDOM:    
+MAN_RANDOM
+ENTER
+STRING [+] PROD_RANDOM:   
+PROD_RANDOM
+ENTER
+STRING [+] SERIAL_RANDOM: 
+SERIAL_RANDOM
+ENTER
+DELAY 300
+
+REM -- 12. JITTER (Anti-EDR / Human Typing Emulation) ----------------
+STRINGLN --- TEST 10: Jitter (Anti-Behavioral Detection) ---
+
+STRINGLN [+] Typing WITHOUT jitter (machine speed):
+DEFAULT_DELAY 0
+STRING The quick brown fox jumps over the lazy dog. 1234567890
+ENTER
+DELAY 500
+
+JITTER 20 80
+STRINGLN [+] Typing WITH jitter 20-80ms (human-like speed):
+STRING The quick brown fox jumps over the lazy dog. 1234567890
+ENTER
+JITTER OFF
+DELAY 300
+
+REM -- 13. ALTSTRING (Keyboard Layout Bypass) ------------------------
+STRINGLN --- TEST 11: ALTSTRING (Layout-Independent Injection) ---
+STRING [+] Normal STRING:    Hello World! @#$%
+ENTER
+STRING [+] ALTSTRING output: 
+ALTSTRING Hello World! @#$%
+ENTER
+STRINGLN [+] ALTSTRING bypasses keyboard layout using ALT+numpad codes.
+DELAY 300
+
+REM -- 14. KEYBOARD SHORTCUTS & MODIFIERS ----------------------------
+STRINGLN --- TEST 12: Keyboard Shortcuts & Modifier Keys ---
+STRINGLN [+] Available modifiers: GUI, SHIFT, CTRL, ALT, TAB, ENTER, ESC
+STRINGLN [+] Right-hand variants: RGUI, RSHIFT, RCTRL, RALT
+STRINGLN [+] Navigation: UP, DOWN, LEFT, RIGHT, HOME, END, PAGEUP, PAGEDOWN
+STRINGLN [+] Function keys: F1 through F24
+STRINGLN [+] Special: DELETE, INSERT, BACKSPACE, PRINTSCREEN, CAPSLOCK
+STRINGLN [+] System: BREAK/PAUSE, NUMLOCK, SCROLLLOCK, SPACE, TAB
+STRINGLN [+] Application: APP/MENU key
+ENTER
+
+REM Demonstrate CTRL+A to select all, then deselect by pressing RIGHT
+STRINGLN [+] Testing CTRL+A (Select All) then RIGHT (deselect)...
+DELAY 500
+CTRL a
+DELAY 500
+RIGHT
+DELAY 300
+
+REM Demonstrate HOLD and RELEASE (press and hold a key)
+STRINGLN [+] Testing HOLD/RELEASE (holding SHIFT while typing):
+HOLD SHIFT
+STRING hello from held shift key
+RELEASE SHIFT
+ENTER
+DELAY 300
+
+REM -- 15. REPEAT (Repeat Last Command) ------------------------------
+STRINGLN --- TEST 13: REPEAT Command ---
+STRING [+] Repeating dash 30 times: 
+STRING -
+REPEAT 29
+ENTER
+DELAY 300
+
+REM -- 16. CONSUMER CONTROL KEYS (Media) -----------------------------
+STRINGLN --- TEST 14: Consumer Control Keys (Media) ---
+STRINGLN [+] Available media keys:
+STRINGLN     MK_VOLUP    - Volume Up
+STRINGLN     MK_VOLDOWN  - Volume Down
+STRINGLN     MK_MUTE     - Mute/Unmute
+STRINGLN     MK_NEXT     - Next Track
+STRINGLN     MK_PREV     - Previous Track
+STRINGLN     MK_PP       - Play/Pause
+STRINGLN     MK_STOP     - Stop
+STRINGLN [+] Demo: Muting and unmuting system audio...
+MK_MUTE
+DELAY 800
+MK_MUTE
+DELAY 300
+
+REM -- 17. MOUSE HID EMULATION --------------------------------------
+STRINGLN --- TEST 15: Mouse HID Emulation ---
+STRINGLN [+] Available commands: MOUSE_MOVE, MOUSE_CLICK, MOUSE_HOLD,
+STRINGLN     MOUSE_RELEASE, MOUSE_SCROLL
+ENTER
+
+STRINGLN [+] Drawing a square with the cursor (100px sides)...
+DELAY 500
+MOUSE_MOVE 100 0
+DELAY 200
+MOUSE_MOVE 0 100
+DELAY 200
+MOUSE_MOVE -100 0
+DELAY 200
+MOUSE_MOVE 0 -100
+DELAY 200
+
+STRINGLN [+] Scrolling down 5 units, then up 5 units...
+MOUSE_SCROLL -5
+DELAY 500
+MOUSE_SCROLL 5
+DELAY 500
+
+STRINGLN [+] Right-click context menu (then ESC to close)...
+MOUSE_CLICK RIGHT
+DELAY 600
+ESC
+DELAY 300
+
+STRINGLN [+] Middle-click test...
+MOUSE_CLICK MIDDLE
+DELAY 300
+
+REM MOUSE_HOLD / MOUSE_RELEASE demo (hold left button briefly)
+STRINGLN [+] MOUSE_HOLD LEFT (500ms) then MOUSE_RELEASE LEFT...
+MOUSE_HOLD LEFT
+DELAY 500
+MOUSE_RELEASE LEFT
+DELAY 300
+
+REM -- 18. LED CONTROL ----------------------------------------------
+STRINGLN --- TEST 16: LED Control ---
+STRINGLN [+] LED_G (Green/On)...
+LED_G
+DELAY 500
+STRINGLN [+] LED_OFF...
+LED_OFF
+DELAY 500
+STRINGLN [+] LED_R (Red/On)...
+LED_R
+DELAY 500
+STRINGLN [+] LED (Toggle)...
+LED
+DELAY 500
+LED
+DELAY 300
+
+REM -- 19. KEYBOARD LOCK STATE MANAGEMENT ----------------------------
+STRINGLN --- TEST 17: Host Keyboard Lock State ---
+STRINGLN [+] SAVE_HOST_KEYBOARD_LOCK_STATE...
+SAVE_HOST_KEYBOARD_LOCK_STATE
+DELAY 200
+STRINGLN [+] RESTORE_HOST_KEYBOARD_LOCK_STATE...
+RESTORE_HOST_KEYBOARD_LOCK_STATE
+STRINGLN [+] Lock states (Caps/Num/Scroll) saved and restored successfully.
+DELAY 300
+
+REM -- 20. OVERCLOCK CONTROL -----------------------------------------
+STRINGLN --- TEST 18: Dynamic CPU Overclocking ---
+STRINGLN [+] OVERCLOCK 200 (already set at boot)
+STRINGLN [+] Reverting to default frequency...
+OVERCLOCK DEFAULT
+DELAY 300
+STRINGLN [+] OVERCLOCK DEFAULT - CPU back to 125MHz
+STRINGLN [+] Re-engaging overclock for chain test...
+OVERCLOCK 200
+DELAY 300
+
+REM -- 21. INJECT_MOD (Modifier Prefix Stripping) -------------------
+STRINGLN --- TEST 19: INJECT_MOD ---
+STRINGLN [+] INJECT_MOD strips its prefix and executes the rest:
+INJECT_MOD STRINGLN     This line was injected via INJECT_MOD STRINGLN
+DELAY 300
+
+REM -- 22. PRINT (Script Debug Output) ------------------------------
+STRINGLN --- TEST 20: PRINT (Debug to Serial Console) ---
+STRINGLN [+] PRINT sends output to the serial console (Dev Mode only).
+STRINGLN     It does NOT type into the host - only visible in REPL.
+PRINT This message appears in the serial console, not in Notepad.
+DELAY 300
+
+REM -- 23. RESET (Release All Keys) ---------------------------------
+STRINGLN --- TEST 21: RESET (Release All Held Keys) ---
+STRINGLN [+] RESET ensures no keys remain stuck after complex sequences.
+RESET
+DELAY 300
+
+REM -- 24. DEFAULT_DELAY (Global Inter-Command Delay) ----------------
+STRINGLN --- TEST 22: DEFAULT_DELAY ---
+STRING [+] DEFAULT_DELAY 0 (fastest): 
+DEFAULT_DELAY 0
+STRING AAAAAAAAAA
+ENTER
+DEFAULT_DELAY 100
+STRING [+] DEFAULT_DELAY 100ms:        
+STRING AAAAAAAAAA
+ENTER
+DEFAULT_DELAY 0
+DELAY 300
+
+REM -- 25. PERFORMANCE STRESS TEST ----------------------------------
+STRINGLN --- TEST 23: Performance Stress Test ---
+STRINGLN [+] Rapid-fire 50-character string injection at max speed:
+DEFAULT_DELAY 0
+STRING abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMN
+ENTER
+DELAY 200
+
+STRINGLN [+] Variable-heavy computation (100 iterations):
+VAR $STRESS = 0
+VAR $CTR = 0
+WHILE $CTR < 100
+    $STRESS = $STRESS + $CTR
+    $CTR = $CTR + 1
+END_WHILE
+STRINGLN [+] Sum of 0..99 = $STRESS (expected: 4950)
+DELAY 300
+
+REM -- 26. SUMMARY & HANDOFF ----------------------------------------
+ENTER
+STRINGLN ============================================================
+STRINGLN    PHASE 1 COMPLETE - 23 TESTS PASSED
+STRINGLN    Handing off to chained script for Phase 2...
+STRINGLN ============================================================
+DELAY 1000
+
+REM -- CHAIN EXECUTION ----------------------------------------------
 CHAIN diagnostic_chained.dd

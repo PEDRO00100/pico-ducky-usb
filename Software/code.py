@@ -26,9 +26,12 @@ from duckyinpython import (
 
 gc.collect()  # Reclaim memory after heavy imports
 
+_DEV_MODE = getProgrammingStatus()
+
 
 def log(level, msg):
-    print(f"[{level}] {msg}")
+    if _DEV_MODE:
+        print(f"[{level}] {msg}")
 
 
 log("INFO", "Initializing Hardware Execution Engine")
@@ -116,7 +119,8 @@ async def run_payload_on_startup():
 
 async def main_loop():
     log("INFO", "Starting asynchronous kernel loop")
-    gc.collect()  # Clean heap before spawning async tasks
+    if gc.mem_free() < 20000:
+        gc.collect()  # Clean heap before spawning async tasks
 
     tasks = [
         asyncio.create_task(blink_pico_led(led)),
